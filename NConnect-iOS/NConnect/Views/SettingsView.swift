@@ -50,15 +50,34 @@ public struct SettingsView: View {
                 
                 Section(header: Text("Thông tin thiết bị kết nối")) {
                     HStack {
-                        Text("Trạng thái")
+                        Text("Trạng thái BLE")
                         Spacer()
                         Text(ccuManager.state.rawValue)
                             .foregroundColor(.secondary)
                     }
                     
+                    HStack {
+                        Text("Màn hình TFT (MFi)")
+                        Spacer()
+                        Text(ccuManager.isMFiConnected ? "Đã kết nối (\(ccuManager.mfiAccessoryName))" : "Chưa kết nối")
+                            .foregroundColor(ccuManager.isMFiConnected ? .green : .secondary)
+                    }
+                    
+                    if !ccuManager.isMFiConnected {
+                        Button(action: {
+                            ccuManager.showMFiPairingPicker()
+                        }) {
+                            HStack {
+                                Image(systemName: "dot.radiowaves.left.and.right")
+                                Text("Ghép đôi màn hình xe (MFi Bluetooth)")
+                            }
+                            .foregroundColor(.cyan)
+                        }
+                    }
+                    
                     if let bike = ccuManager.connectedBike {
                         HStack {
-                            Text("Tên Bluetooth")
+                            Text("Tên Bluetooth BLE")
                             Spacer()
                             Text(bike.name)
                                 .foregroundColor(.secondary)

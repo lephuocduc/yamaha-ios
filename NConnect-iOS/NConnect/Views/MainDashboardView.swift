@@ -72,13 +72,17 @@ public struct MainDashboardView: View {
                     Circle()
                         .fill(statusColor)
                         .frame(width: 10, height: 10)
-                    Text(ccuManager.state.rawValue)
+                    Text(ccuManager.isMFiConnected ? "Đã kết nối màn hình TFT" : ccuManager.state.rawValue)
                         .font(.headline)
                         .foregroundColor(.white)
                 }
                 
-                if let bike = ccuManager.connectedBike {
-                    Text("Thiết bị: \(bike.name)")
+                if ccuManager.isMFiConnected {
+                    Text("Màn hình xe: \(ccuManager.mfiAccessoryName)")
+                        .font(.subheadline)
+                        .foregroundColor(.green)
+                } else if let bike = ccuManager.connectedBike {
+                    Text("Thiết bị BLE: \(bike.name)")
                         .font(.subheadline)
                         .foregroundColor(.gray)
                 } else {
@@ -119,7 +123,8 @@ public struct MainDashboardView: View {
         HStack(spacing: 16) {
             // Tốc độ (Ưu tiên thông số xe CCU, nếu xe chưa chạy thì lấy tốc độ GPS thực tế của iPhone)
             VStack {
-                let currentSpeed = ccuManager.telemetry.speedKmh > 0 ? ccuManager.telemetry.speedKmh : navEngine.currentSpeedKmh
+                let rawSpeed = ccuManager.telemetry.speedKmh > 0 ? ccuManager.telemetry.speedKmh : navEngine.currentSpeedKmh
+                let currentSpeed = rawSpeed >= 2.5 ? rawSpeed : 0.0
                 Text("\(Int(currentSpeed))")
                     .font(.system(size: 38, weight: .heavy, design: .rounded))
                     .foregroundColor(.white)
@@ -131,9 +136,9 @@ public struct MainDashboardView: View {
             
             Divider().background(Color.gray.opacity(0.3))
             
-            // Vòng tua máy RPM
+            // Vòng tua máy RPM (Dải vòng tua thực tế xe máy khi nổ máy: 800 - 13000 RPM)
             VStack {
-                Text(ccuManager.telemetry.rpm > 0 ? "\(ccuManager.telemetry.rpm)" : "--")
+                Text(ccuManager.telemetry.rpm >= 800 ? "\(ccuManager.telemetry.rpm)" : "--")
                     .font(.system(size: 24, weight: .bold, design: .rounded))
                     .foregroundColor(.cyan)
                 Text("VÒNG/PHÚT")

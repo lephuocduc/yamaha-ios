@@ -39,18 +39,20 @@ public struct ContentView: View {
     // MARK: - Vòng lặp stream hình ảnh bản đồ lên màn hình TFT (1.5s/khung hình)
     private func startStreamingLoop() {
         streamTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
-            guard ccuManager.state == .connected || ccuManager.state == .streaming else { return }
+            guard ccuManager.state == .connected || ccuManager.state == .streaming || ccuManager.isMFiConnected else { return }
+            
+            let rawSpeed = ccuManager.telemetry.speedKmh > 0 ? ccuManager.telemetry.speedKmh : navEngine.currentSpeedKmh
+            let displaySpeed = rawSpeed >= 2.5 ? rawSpeed : 0.0
             
             streamRenderer.renderLiveMapFrame(
                 location: navEngine.currentLocation,
                 activeRoute: navEngine.activeRoute,
                 instruction: navEngine.currentInstruction,
-                speedKmh: navEngine.currentSpeedKmh,
+                speedKmh: displaySpeed,
                 telemetry: ccuManager.telemetry
             ) { [weak ccuManager] frameData in
                 guard let data = frameData, let ccu = ccuManager else { return }
-                let packets = ccu.streetCross.encodeJPEGFrameForTFT(data)
-                ccu.sendFrameDataToTFT(packets)
+                ccu.sendLiveMapFrameToTFT(data)
             }
         }
     }

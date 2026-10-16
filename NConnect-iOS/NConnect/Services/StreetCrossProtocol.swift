@@ -195,3 +195,90 @@ public final class StreetCrossProtocol {
         return packet
     }
 }
+
+// MARK: - NaviLite Protocol Codec (Garmin StreetCross wire format on Yamaha TFT)
+public struct NaviFrame {
+    public let svc: Int
+    public let payload: [UInt8]
+    
+    public init(svc: Int, payload: [UInt8]) {
+        self.svc = svc
+        self.payload = payload
+    }
+}
+
+public enum NaviLite {
+    public static let FT_PHONE: UInt8 = 6
+    
+    private static let CRC_TABLE: [UInt32] = {
+        var t = [UInt32](repeating: 0, count: 256)
+        for i in 0..<256 {
+            var c = UInt32(i) << 24
+            for _ in 0..<8 {
+                c = (c & 0x80000000) != 0 ? ((c << 1) ^ 0x04C11DB7) : (c << 1)
+            }
+            t[i] = c & 0xffffffff
+        }
+        return t
+    }()
+    
+    public static func crc32Mpeg2(_ data: [UInt8]) -> UInt32 {
+        var c: UInt32 = 0xFFFFFFFF
+        for b in data {
+            c = ((c << 8) ^ CRC_TABLE[Int(((c >> 24) ^ UInt32(b)) & 0xff)]) & 0xffffffff
+        }
+        return c
+    }
+    
+    /// Đóng gói khung tin NaviLite: "nAl@" | version 1 | frameType | serviceType | size(4 LE) | pdt | crc(4 LE) | payload
+    public static func frame(_ ft: UInt8, _ svc: UInt8, _ pdt: UInt8, _ payload: [UInt8]) -> Data {
+        let size = payload.count
+        let h: [UInt8] = [
+            0x6e, 0x41, 0x6c, 0x40, // "nAl@" magic
+            1,                      // version 1
+            ft,                     // frameType (e.g. 6 = PHONE)
+            svc,                    // serviceType
+            UInt8(size & 0xff),
+            UInt8((size >> 8) & 0xff),
+            UInt8((size >> 16) & 0xff),
+            UInt8((size >> 24) & 0xff),
+            pdt                     // payloadDataType (0 = VALUE, 1 = POINTER)
+        ]
+        var hp = h
+        hp.append(contentsOf: payload)
+        let crc = crc32Mpeg2(hp)
+        
+        var out = Data(h)
+        var crcLE = crc.littleEndian
+        out.append(Data(bytes: &crcLE, count: 4))
+        out.append(Data(payload))
+        return out
+    }
+    
+    /// Echo-auth: xe gửi hạt giống bảo mật (SEC_DATA); điện thoại phản hồi 4 byte cuối XOR 0x0a
+    public static func secDataAckPayload(_ seed: [UInt8]) -> [UInt8] {
+        let n = 4
+        guard seed.count >= n else { return [0, 0, 0, 0] }
+        return (0..<n).map { seed[seed.count - n + $0] ^ 0x0a }
+    }
+    
+    public static func partNumber(_ seed: [UInt8]) -> String {
+        guard seed.count > 4 else { return "?" }
+        let raw = seed[0..<(seed.count - 4)].map { $0 ^ 0x0a }
+        return String(bytes: raw, encoding: .ascii) ?? "?"
+    }
+    
+    public static func hexB(_ s: String) -> [UInt8] {
+        var r = [UInt8]()
+        var i = s.startIndex
+        while i < s.endIndex {
+            let j = s.index(i, offsetBy: 2, limitedBy: s.endIndex) ?? s.endIndex
+            if let val = UInt8(s[i..<j], radix: 16) {
+                r.append(val)
+            }
+            i = j
+        }
+        return r
+    }
+}
+
