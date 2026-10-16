@@ -118,7 +118,7 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     @objc private func accessoryDisconnected(_ notification: Notification) {
         if let accessory = notification.userInfo?[EAAccessoryKey] as? EAAccessory {
             log("Phụ kiện MFi ngắt kết nối: \(accessory.name)")
-            if eaSession?.accessory.connectionID == accessory.connectionID {
+            if eaSession?.accessory?.connectionID == accessory.connectionID {
                 closeEASession()
             }
         }
@@ -127,14 +127,14 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     // Mở hộp thoại ghép đôi Bluetooth của iOS với xe
     public func showMFiPairingPicker() {
         log("Mở hộp thoại ghép đôi Bluetooth MFi với xe máy...")
-        EAAccessoryManager.shared().showBluetoothAccessoryPicker(withPredicate: nil) { [weak self] error in
+        EAAccessoryManager.shared().showBluetoothAccessoryPicker(withPredicate: nil, completion: { [weak self] (error: Error?) in
             if let error = error {
                 self?.log("Ghép đôi MFi: \(error.localizedDescription)")
             } else {
                 self?.log("Đã chọn phụ kiện, đang kết nối...")
                 self?.checkConnectedAccessories()
             }
-        }
+        })
     }
     
     private func connectExternalAccessory(_ accessory: EAAccessory) {
