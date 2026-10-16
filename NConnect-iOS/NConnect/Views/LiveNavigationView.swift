@@ -132,7 +132,7 @@ public struct LiveNavigationView: View {
             
             // Tốc độ km/h
             VStack {
-                let speed = ccuManager.telemetry.speedKmh > 0 ? ccuManager.telemetry.speedKmh : navEngine.currentSpeedKmh
+                let speed = navEngine.currentSpeedKmh >= 2.5 ? navEngine.currentSpeedKmh : 0.0
                 Text("\(Int(speed))")
                     .font(.title2.bold())
                     .foregroundColor(.white)

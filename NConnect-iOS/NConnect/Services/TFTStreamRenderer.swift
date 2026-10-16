@@ -13,6 +13,7 @@ public final class TFTStreamRenderer: ObservableObject {
     public var targetHeight: Int = 234
     
     @Published public var lastFrameImage: UIImage?
+    @Published public var mapRadiusMeters: CLLocationDistance = 450.0
     
     private var isSnapshotting: Bool = false
     private var cachedMapImage: UIImage?
@@ -22,6 +23,19 @@ public final class TFTStreamRenderer: ObservableObject {
     public init(width: Int = 480, height: Int = 234) {
         self.targetWidth = width
         self.targetHeight = height
+    }
+    
+    // MARK: - Điều chỉnh mức độ Zoom bản đồ (Tương thích nút + / - trên xe)
+    public func zoomIn() {
+        mapRadiusMeters = max(120.0, mapRadiusMeters * 0.65)
+        lastSnapshotCoord = nil
+        lastSnapshotTime = .distantPast
+    }
+    
+    public func zoomOut() {
+        mapRadiusMeters = min(3000.0, mapRadiusMeters * 1.5)
+        lastSnapshotCoord = nil
+        lastSnapshotTime = .distantPast
     }
     
     // MARK: - Chụp và render khung hình bản đồ động theo vị trí thực tế của xe
@@ -54,9 +68,8 @@ public final class TFTStreamRenderer: ObservableObject {
             isSnapshotting = true
             
             let options = MKMapSnapshotter.Options()
-            // Tỷ lệ khung hình 480 x 272
             options.size = CGSize(width: targetWidth, height: targetHeight)
-            options.region = MKCoordinateRegion(center: loc.coordinate, latitudinalMeters: 550, longitudinalMeters: 550)
+            options.region = MKCoordinateRegion(center: loc.coordinate, latitudinalMeters: mapRadiusMeters, longitudinalMeters: mapRadiusMeters)
             options.mapType = .standard
             options.traitCollection = UITraitCollection(userInterfaceStyle: .dark) // Giao diện tối chuyên nghiệp cho xe
             
@@ -131,11 +144,8 @@ public final class TFTStreamRenderer: ObservableObject {
         // 4. Lớp phủ thanh trạng thái phía trên (Top HUD: Tên đường hoặc Hướng rẽ)
         drawTopNavigationBanner(in: ctx, size: size, instruction: instruction)
         
-        // 5. Đồng hồ tốc độ góc dưới bên trái (Yamaha Racing Style)
-        drawSpeedometerHUD(in: ctx, size: size, speedKmh: speedKmh, telemetry: telemetry)
-        
-        // 6. Huy hiệu Yamaha / Trạng thái góc dưới bên phải
-        drawStatusBadge(in: ctx, size: size, telemetry: telemetry)
+        // (Đã bỏ đồng hồ tốc độ và mức xăng trên bản đồ theo yêu cầu người dùng:
+        // xe đã có đồng hồ tốc độ riêng và tránh bị thanh trạng thái xe che)
         
         let finalImage = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()
@@ -359,9 +369,6 @@ public final class TFTStreamRenderer: ObservableObject {
             .foregroundColor: UIColor.gray
         ]
         subtitle.draw(at: CGPoint(x: 24, y: 58), withAttributes: sAttrs)
-        
-        drawSpeedometerHUD(in: ctx, size: size, speedKmh: speedKmh, telemetry: telemetry)
-        drawStatusBadge(in: ctx, size: size, telemetry: telemetry)
         
         let img = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()

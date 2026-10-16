@@ -73,6 +73,10 @@ public struct SavedLocation: Identifiable, Codable {
         case favorite = "Yêu thích"
     }
     
+    public var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+    
     public init(title: String, subtitle: String, latitude: Double, longitude: Double, type: LocationType) {
         self.title = title
         self.subtitle = subtitle

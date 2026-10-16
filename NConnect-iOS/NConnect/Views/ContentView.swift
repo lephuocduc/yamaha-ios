@@ -30,6 +30,12 @@ public struct ContentView: View {
         .preferredColorScheme(.dark)
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
+            ccuManager.onZoomIn = { [weak streamRenderer] in
+                streamRenderer?.zoomIn()
+            }
+            ccuManager.onZoomOut = { [weak streamRenderer] in
+                streamRenderer?.zoomOut()
+            }
             startStreamingLoop()
         }
         .onDisappear {
@@ -44,7 +50,7 @@ public struct ContentView: View {
             // Chỉ gửi ảnh sau khi bắt tay NaviLite thành công (trạng thái .streaming)
             guard ccuManager.state == .streaming else { return }
             
-            let rawSpeed = ccuManager.telemetry.speedKmh > 0 ? ccuManager.telemetry.speedKmh : navEngine.currentSpeedKmh
+            let rawSpeed = navEngine.currentSpeedKmh
             let displaySpeed = rawSpeed >= 2.5 ? rawSpeed : 0.0
             
             streamRenderer.renderLiveMapFrame(

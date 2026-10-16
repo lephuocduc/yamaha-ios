@@ -14,6 +14,11 @@ public final class NavigationEngine: NSObject, ObservableObject {
     @Published public var nearbyGasStations: [SavedLocation] = []
     @Published public var activeRoute: MKRoute?
     
+    // Quản lý địa điểm đã lưu (Về nhà, Đi làm, Yêu thích)
+    @Published public var homeLocation: SavedLocation?
+    @Published public var workLocation: SavedLocation?
+    @Published public var favoriteLocations: [SavedLocation] = []
+    
     private let locationManager = CLLocationManager()
     private var routeSteps: [NavigationStep] = []
     private var currentStepIndex: Int = 0
@@ -35,6 +40,62 @@ public final class NavigationEngine: NSObject, ObservableObject {
         locationManager.pausesLocationUpdatesAutomatically = false
         locationManager.requestAlwaysAuthorization()
         locationManager.startUpdatingLocation()
+        loadSavedLocations()
+    }
+    
+    // MARK: - Quản lý và lưu trữ địa điểm
+    private func loadSavedLocations() {
+        let decoder = JSONDecoder()
+        if let data = UserDefaults.standard.data(forKey: "nconnect_home_location"),
+           let loc = try? decoder.decode(SavedLocation.self, from: data) {
+            self.homeLocation = loc
+        }
+        if let data = UserDefaults.standard.data(forKey: "nconnect_work_location"),
+           let loc = try? decoder.decode(SavedLocation.self, from: data) {
+            self.workLocation = loc
+        }
+        if let data = UserDefaults.standard.data(forKey: "nconnect_favorite_locations"),
+           let list = try? decoder.decode([SavedLocation].self, from: data) {
+            self.favoriteLocations = list
+        }
+    }
+    
+    public func setHomeLocation(_ loc: SavedLocation) {
+        var h = loc
+        h.type = .home
+        self.homeLocation = h
+        if let data = try? JSONEncoder().encode(h) {
+            UserDefaults.standard.set(data, forKey: "nconnect_home_location")
+        }
+    }
+    
+    public func setWorkLocation(_ loc: SavedLocation) {
+        var w = loc
+        w.type = .work
+        self.workLocation = w
+        if let data = try? JSONEncoder().encode(w) {
+            UserDefaults.standard.set(data, forKey: "nconnect_work_location")
+        }
+    }
+    
+    public func addFavoriteLocation(_ loc: SavedLocation) {
+        var f = loc
+        f.type = .favorite
+        if !favoriteLocations.contains(where: { $0.id == f.id || ($0.latitude == f.latitude && $0.longitude == f.longitude) }) {
+            favoriteLocations.append(f)
+            saveFavorites()
+        }
+    }
+    
+    public func removeFavoriteLocation(id: UUID) {
+        favoriteLocations.removeAll(where: { $0.id == id })
+        saveFavorites()
+    }
+    
+    private func saveFavorites() {
+        if let data = try? JSONEncoder().encode(favoriteLocations) {
+            UserDefaults.standard.set(data, forKey: "nconnect_favorite_locations")
+        }
     }
     
     public func enableBackgroundUpdatesIfPossible() {

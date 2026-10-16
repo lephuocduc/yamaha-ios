@@ -24,10 +24,13 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     @Published public var telemetry: BikeTelemetry = BikeTelemetry()
     @Published public var diagnosticLogs: [String] = []
     
-    // Trạng thái kết nối MFi với màn hình TFT của xe
     @Published public var isMFiConnected: Bool = false
     @Published public var mfiAccessoryName: String = ""
     @Published public var mfiStatus: String = "Chưa kết nối màn hình TFT"
+    
+    // Callbacks xử lý nút bấm từ cùm tay lái xe (+ / - / Zoom)
+    public var onZoomIn: (() -> Void)?
+    public var onZoomOut: (() -> Void)?
     
     private var centralManager: CBCentralManager!
     private var currentPeripheral: CBPeripheral?
@@ -249,7 +252,22 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     log("Menu xe: Tạm dừng nhận hình (56) → Trả 20")
                     writeEAData(NaviLite.frame(6, 20, 0, [0, 0]))
                     
+                case 53, 57:
+                    log("Phím cùm xe: Phóng to (+) / Zoom In")
+                    DispatchQueue.main.async {
+                        self.onZoomIn?()
+                    }
+                    
+                case 54, 58:
+                    log("Phím cùm xe: Thu nhỏ (-) / Zoom Out")
+                    DispatchQueue.main.async {
+                        self.onZoomOut?()
+                    }
+                    
                 default:
+                    if f.svc != 0x06 {
+                        log("[NaviLite] Phím xe/Lệnh: svc \(f.svc) (data: \(f.payload.prefix(6).map { String(format: "%02X", $0) }.joined(separator: " ")))")
+                    }
                     break
                 }
             } catch {
@@ -628,32 +646,7 @@ extension YamahaCCUManager: CBPeripheralDelegate {
             return
         }
         
-        // Tốc độ xe km/h
-        if bytes.count >= 3 {
-            let speedRaw = Double(bytes[2])
-            if speedRaw >= 0 && speedRaw < 200 {
-                telemetry.speedKmh = speedRaw
-            }
-        }
-        
-        // Vòng tua máy RPM (Dải vòng tua thực tế xe máy khi nổ máy: 800 - 13000 RPM)
-        if bytes.count >= 5 {
-            let rpmRaw = Int(bytes[3]) | (Int(bytes[4]) << 8)
-            if rpmRaw >= 800 && rpmRaw <= 13000 {
-                telemetry.rpm = rpmRaw
-            } else {
-                telemetry.rpm = 0
-            }
-        } else {
-            telemetry.rpm = 0
-        }
-        
-        // Mức nhiên liệu %
-        if bytes.count >= 6 {
-            let fuelRaw = Int(bytes[5])
-            if fuelRaw >= 5 && fuelRaw <= 100 {
-                telemetry.fuelPercent = fuelRaw
-            }
-        }
+        // Không gán byte mã lệnh 0x51 (81) làm tốc độ ảo
+        // Tốc độ thực tế được tính chuẩn xác bằng cảm biến GPS thời gian thực trên iPhone
     }
 }
