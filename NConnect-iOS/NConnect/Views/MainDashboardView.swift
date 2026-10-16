@@ -99,15 +99,15 @@ public struct MainDashboardView: View {
             Spacer()
             
             Button(action: {
-                if ccuManager.state == .disconnected || ccuManager.state == .error {
-                    ccuManager.startScanning()
-                } else if ccuManager.state == .connected || ccuManager.state == .authenticating {
-                    ccuManager.startStreaming()
-                } else if ccuManager.state == .streaming {
+                if ccuManager.state == .streaming {
                     ccuManager.state = .connected
+                } else if ccuManager.isMFiConnected || ccuManager.state == .connected || ccuManager.state == .authenticating {
+                    ccuManager.startStreaming()
+                } else {
+                    ccuManager.startScanning()
                 }
             }) {
-                Text(ccuManager.state == .streaming ? "Đang chiếu TFT" : (ccuManager.state == .connected ? "Chiếu lên xe" : (ccuManager.state == .authenticating ? "Bắt đầu chiếu" : "Kết nối")))
+                Text(ccuManager.state == .streaming ? "Đang chiếu TFT" : ((ccuManager.isMFiConnected || ccuManager.state == .connected) ? "Chiếu lên xe" : (ccuManager.state == .authenticating ? "Bắt đầu chiếu" : "Kết nối")))
                     .font(.caption.bold())
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
@@ -603,6 +603,9 @@ public struct MainDashboardView: View {
     }
     
     private var statusColor: Color {
+        if ccuManager.isMFiConnected || ccuManager.state == .connected || ccuManager.state == .streaming {
+            return .green
+        }
         switch ccuManager.state {
         case .connected, .streaming: return .green
         case .scanning, .connecting, .authenticating: return .yellow

@@ -47,9 +47,6 @@ public struct ContentView: View {
     // MARK: - Vòng lặp stream hình ảnh bản đồ lên màn hình TFT (1.5s/khung hình)
     private func startStreamingLoop() {
         streamTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
-            // Chỉ gửi ảnh sau khi bắt tay NaviLite thành công (trạng thái .streaming)
-            guard ccuManager.state == .streaming else { return }
-            
             let rawSpeed = navEngine.currentSpeedKmh
             let displaySpeed = rawSpeed >= 2.5 ? rawSpeed : 0.0
             
@@ -61,7 +58,9 @@ public struct ContentView: View {
                 telemetry: ccuManager.telemetry
             ) { [weak ccuManager] frameData in
                 guard let data = frameData, let ccu = ccuManager else { return }
-                ccu.sendLiveMapFrameToTFT(data)
+                if ccu.isMFiConnected || ccu.state == .streaming {
+                    ccu.sendLiveMapFrameToTFT(data)
+                }
             }
         }
     }
