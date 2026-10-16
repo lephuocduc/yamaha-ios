@@ -127,7 +127,7 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     // Mở hộp thoại ghép đôi Bluetooth của iOS với xe
     public func showMFiPairingPicker() {
         log("Mở hộp thoại ghép đôi Bluetooth MFi với xe máy...")
-        EAAccessoryManager.shared().showBluetoothAccessoryPicker(withPredicate: nil, completion: { [weak self] (error: Error?) in
+        EAAccessoryManager.shared().showBluetoothAccessoryPicker(withNameFilter: nil, completion: { [weak self] (error: Error?) in
             if let error = error {
                 self?.log("Ghép đôi MFi: \(error.localizedDescription)")
             } else {
