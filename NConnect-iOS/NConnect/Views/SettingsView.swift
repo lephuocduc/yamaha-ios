@@ -80,6 +80,25 @@ public struct SettingsView: View {
                     }
                 }
                 
+                Section(header: Text("Nhật ký kết nối (Diagnostic Log)")) {
+                    if ccuManager.diagnosticLogs.isEmpty {
+                        Text("Chưa có nhật ký nào.")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    } else {
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 4) {
+                                ForEach(ccuManager.diagnosticLogs.suffix(30), id: \.self) { logItem in
+                                    Text(logItem)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundColor(.green)
+                                }
+                            }
+                        }
+                        .frame(maxHeight: 180)
+                    }
+                }
+                
                 Section(header: Text("Thông tin ứng dụng")) {
                     HStack {
                         Text("Phiên bản")

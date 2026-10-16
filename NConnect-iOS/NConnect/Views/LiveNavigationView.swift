@@ -65,7 +65,8 @@ public struct LiveNavigationView: View {
             
             // Tốc độ hiện tại
             VStack {
-                Text("\(Int(ccuManager.telemetry.speedKmh))")
+                let speed = ccuManager.telemetry.speedKmh > 0 ? ccuManager.telemetry.speedKmh : navEngine.currentSpeedKmh
+                Text("\(Int(speed))")
                     .font(.title.bold())
                     .foregroundColor(.white)
                 Text("km/h")
@@ -87,7 +88,7 @@ public struct LiveNavigationView: View {
         HStack {
             if navEngine.isNavigating {
                 Button(action: {
-                    navEngine.isNavigating = false
+                    navEngine.stopNavigation()
                 }) {
                     Label("Dừng dẫn đường", systemImage: "xmark.circle.fill")
                         .font(.headline)

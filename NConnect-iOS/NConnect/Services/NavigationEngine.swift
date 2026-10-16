@@ -1,18 +1,20 @@
 import Foundation
 import CoreLocation
+import MapKit
 import Combine
 
-// MARK: - Bộ xử lý định vị và dẫn đường cho NConnect
+// MARK: - Bộ xử lý định vị và dẫn đường cho NConnect (Tích hợp MapKit & Apple Maps)
 public final class NavigationEngine: NSObject, ObservableObject {
     
     @Published public var currentLocation: CLLocation?
+    @Published public var currentSpeedKmh: Double = 0.0
     @Published public var currentInstruction: NavigationInstruction = NavigationInstruction()
     @Published public var isNavigating: Bool = false
     @Published public var searchResults: [SavedLocation] = []
     @Published public var nearbyGasStations: [SavedLocation] = []
+    @Published public var activeRoute: MKRoute?
     
     private let locationManager = CLLocationManager()
-    private var routeCoordinates: [CLLocationCoordinate2D] = []
     private var routeSteps: [NavigationStep] = []
     private var currentStepIndex: Int = 0
     
@@ -27,13 +29,13 @@ public final class NavigationEngine: NSObject, ObservableObject {
     public override init() {
         super.init()
         locationManager.delegate = self
-        locationManager.desiredAccuracy = kCLLocationAccuracyBest
-        locationManager.distanceFilter = 5.0
+        locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
+        locationManager.distanceFilter = 3.0
         locationManager.requestWhenInUseAuthorization()
         locationManager.startUpdatingLocation()
     }
     
-    private func enableBackgroundUpdatesIfPossible() {
+    public func enableBackgroundUpdatesIfPossible() {
         let status = locationManager.authorizationStatus
         if (status == .authorizedAlways || status == .authorizedWhenInUse) {
             locationManager.allowsBackgroundLocationUpdates = true
@@ -41,173 +43,190 @@ public final class NavigationEngine: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Tìm kiếm địa điểm bằng Photon Geocoder (Hỗ trợ tiếng Việt rất tốt)
+    // MARK: - Tìm kiếm địa điểm bằng Apple MapKit (Hỗ trợ tiếng Việt tuyệt đối, cực nhanh)
     public func searchPlaces(query: String) {
-        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        guard let url = URL(string: "https://photon.komoot.io/api/?q=\(encoded)&limit=5") else { return }
-        
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
-            guard let data = data, error == nil else { return }
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let features = json["features"] as? [[String: Any]] {
-                    var results: [SavedLocation] = []
-                    for f in features {
-                        if let geometry = f["geometry"] as? [String: Any],
-                           let coords = geometry["coordinates"] as? [Double], coords.count >= 2,
-                           let properties = f["properties"] as? [String: Any] {
-                            let name = properties["name"] as? String ?? query
-                            let street = properties["street"] as? String ?? ""
-                            let city = properties["city"] as? String ?? ""
-                            let fullSub = [street, city].filter { !$0.isEmpty }.joined(separator: ", ")
-                            
-                            results.append(SavedLocation(
-                                title: name,
-                                subtitle: fullSub.isEmpty ? "Việt Nam" : fullSub,
-                                latitude: coords[1],
-                                longitude: coords[0],
-                                type: .favorite
-                            ))
-                        }
-                    }
-                    DispatchQueue.main.async {
-                        self?.searchResults = results
-                    }
-                }
-            } catch {
-                print("[Nav] Lỗi parse kết quả tìm kiếm: \(error)")
-            }
-        }.resume()
-    }
-    
-    // MARK: - Lập lộ trình bằng Valhalla OpenStreetMap
-    public func calculateRoute(to destination: CLLocationCoordinate2D) {
-        guard let start = currentLocation?.coordinate else {
-            print("[Nav] Chưa có vị trí GPS hiện tại")
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            searchResults = []
             return
         }
         
-        let requestJson: [String: Any] = [
-            "locations": [
-                ["lat": start.latitude, "lon": start.longitude],
-                ["lat": destination.latitude, "lon": destination.longitude]
-            ],
-            "costing": "motorcycle", // Chế độ xe máy
-            "directions_options": ["units": "kilometers", "language": "vi-VN"]
-        ]
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = trimmed
+        if let loc = currentLocation {
+            request.region = MKCoordinateRegion(center: loc.coordinate, latitudinalMeters: 30000, longitudinalMeters: 30000)
+        }
         
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestJson),
-              let jsonStr = String(data: jsonData, encoding: .utf8),
-              let encoded = jsonStr.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "https://valhalla1.openstreetmap.de/route?json=\(encoded)") else { return }
-        
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
-            guard let data = data, error == nil else { return }
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let trip = json["trip"] as? [String: Any],
-                   let legs = trip["legs"] as? [[String: Any]],
-                   let firstLeg = legs.first,
-                   let maneuvers = firstLeg["maneuvers"] as? [[String: Any]] {
-                    
-                    var steps: [NavigationStep] = []
-                    for m in maneuvers {
-                        let text = m["instruction"] as? String ?? ""
-                        let lengthKm = m["length"] as? Double ?? 0.0
-                        let distMeters = Int(lengthKm * 1000)
-                        let streetNames = m["street_names"] as? [String]
-                        let road = streetNames?.first ?? ""
-                        let type = m["type"] as? Int ?? 1
-                        
-                        let dir = Self.mapValhallaTypeToDirection(type)
-                        steps.append(NavigationStep(
-                            instruction: text,
-                            distanceMeters: distMeters,
-                            direction: dir,
-                            coordinate: destination,
-                            roadName: road
-                        ))
-                    }
-                    
-                    DispatchQueue.main.async {
-                        self?.routeSteps = steps
-                        self?.currentStepIndex = 0
-                        self?.enableBackgroundUpdatesIfPossible()
-                        self?.isNavigating = true
-                        self?.updateCurrentInstruction()
-                    }
-                }
-            } catch {
-                print("[Nav] Lỗi định tuyến: \(error)")
+        let search = MKLocalSearch(request: request)
+        search.start { [weak self] response, error in
+            guard let self = self else { return }
+            if let error = error {
+                print("[Nav] Lỗi tìm kiếm MapKit: \(error.localizedDescription)")
+                return
             }
-        }.resume()
+            guard let response = response else { return }
+            
+            let items: [SavedLocation] = response.mapItems.prefix(10).map { item in
+                let sub = item.placemark.title ?? item.placemark.locality ?? "Việt Nam"
+                return SavedLocation(
+                    title: item.name ?? trimmed,
+                    subtitle: sub,
+                    latitude: item.placemark.coordinate.latitude,
+                    longitude: item.placemark.coordinate.longitude,
+                    type: .favorite
+                )
+            }
+            
+            DispatchQueue.main.async {
+                self.searchResults = items
+            }
+        }
     }
     
-    // MARK: - Tìm trạm xăng trong bán kính 5km
+    // MARK: - Tìm trạm xăng lân cận bằng Apple MapKit
     public func fetchNearbyGasStations() {
-        guard let loc = currentLocation?.coordinate else { return }
-        let query = """
-        [out:json];
-        node["amenity"="fuel"](around:5000, \(loc.latitude), \(loc.longitude));
-        out 10;
-        """
-        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "https://overpass-api.de/api/interpreter?data=\(encoded)") else { return }
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = "Trạm xăng"
+        if let loc = currentLocation {
+            request.region = MKCoordinateRegion(center: loc.coordinate, latitudinalMeters: 10000, longitudinalMeters: 10000)
+        }
         
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data = data else { return }
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let elements = json["elements"] as? [[String: Any]] {
-                var stations: [SavedLocation] = []
-                for elem in elements {
-                    let lat = elem["lat"] as? Double ?? 0.0
-                    let lon = elem["lon"] as? Double ?? 0.0
-                    let tags = elem["tags"] as? [String: Any]
-                    let name = tags?["name"] as? String ?? tags?["brand"] as? String ?? "Trạm xăng Petrolimex"
-                    
-                    stations.append(SavedLocation(
-                        title: name,
-                        subtitle: "Cách khoảng 2-5 km",
-                        latitude: lat,
-                        longitude: lon,
-                        type: .gas
-                    ))
+        let search = MKLocalSearch(request: request)
+        search.start { [weak self] response, _ in
+            guard let self = self, let response = response else { return }
+            
+            let stations: [SavedLocation] = response.mapItems.prefix(10).map { item in
+                var subText = item.placemark.title ?? "Trạm xăng gần bạn"
+                if let loc = self.currentLocation {
+                    let d = loc.distance(from: CLLocation(latitude: item.placemark.coordinate.latitude, longitude: item.placemark.coordinate.longitude))
+                    if d < 1000 {
+                        subText = "Cách \(Int(d)) m"
+                    } else {
+                        subText = String(format: "Cách %.1f km", d / 1000.0)
+                    }
                 }
-                DispatchQueue.main.async {
-                    self?.nearbyGasStations = stations
-                }
+                return SavedLocation(
+                    title: item.name ?? "Trạm xăng",
+                    subtitle: subText,
+                    latitude: item.placemark.coordinate.latitude,
+                    longitude: item.placemark.coordinate.longitude,
+                    type: .gas
+                )
             }
-        }.resume()
+            
+            DispatchQueue.main.async {
+                self.nearbyGasStations = stations
+            }
+        }
+    }
+    
+    // MARK: - Lập lộ trình bằng Apple MapKit Directions
+    public func calculateRoute(to destination: CLLocationCoordinate2D) {
+        guard let start = currentLocation?.coordinate else {
+            print("[Nav] Chưa có vị trí GPS hiện tại để lập lộ trình")
+            return
+        }
+        
+        let request = MKDirections.Request()
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: start))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination))
+        request.transportType = .automobile
+        request.requestsAlternateRoutes = false
+        
+        let directions = MKDirections(request: request)
+        directions.calculate { [weak self] response, error in
+            guard let self = self else { return }
+            if let error = error {
+                print("[Nav] Lỗi tính lộ trình: \(error.localizedDescription)")
+                return
+            }
+            guard let route = response?.routes.first else {
+                print("[Nav] Không tìm thấy lộ trình phù hợp")
+                return
+            }
+            
+            var steps: [NavigationStep] = []
+            for step in route.steps {
+                let text = step.instructions.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else { continue }
+                
+                let dir = self.mapInstructionTextToDirection(text)
+                steps.append(NavigationStep(
+                    instruction: text,
+                    distanceMeters: Int(step.distance),
+                    direction: dir,
+                    coordinate: step.polyline.coordinate,
+                    roadName: text
+                ))
+            }
+            
+            DispatchQueue.main.async {
+                self.activeRoute = route
+                self.routeSteps = steps
+                self.currentStepIndex = 0
+                self.enableBackgroundUpdatesIfPossible()
+                self.isNavigating = true
+                self.updateCurrentInstruction()
+                print("[Nav] ✓ Lộ trình mới đã sẵn sàng: \(steps.count) bước dẫn đường")
+            }
+        }
+    }
+    
+    public func stopNavigation() {
+        isNavigating = false
+        activeRoute = nil
+        routeSteps.removeAll()
+        currentStepIndex = 0
+        currentInstruction = NavigationInstruction()
     }
     
     private func updateCurrentInstruction() {
-        guard isNavigating, currentStepIndex < routeSteps.count else { return }
-        let step = routeSteps[currentStepIndex]
+        guard isNavigating, currentStepIndex < routeSteps.count else {
+            if currentStepIndex >= routeSteps.count && !routeSteps.isEmpty {
+                var inst = NavigationInstruction()
+                inst.direction = .destination
+                inst.distanceMeters = 0
+                inst.nextRoadName = "Đã đến nơi"
+                inst.isNavigating = true
+                currentInstruction = inst
+            }
+            return
+        }
         
+        let step = routeSteps[currentStepIndex]
         var inst = NavigationInstruction()
         inst.direction = step.direction
         inst.distanceMeters = step.distanceMeters
-        inst.nextRoadName = step.roadName.isEmpty ? step.instruction : step.roadName
+        inst.nextRoadName = step.roadName
         inst.isNavigating = true
         
         currentInstruction = inst
     }
     
-    private static func mapValhallaTypeToDirection(_ type: Int) -> NavigationDirection {
-        switch type {
-        case 1, 2, 3: return .straight
-        case 4, 5: return .slightRight
-        case 6, 7: return .right
-        case 8: return .sharpRight
-        case 9: return .uTurn
-        case 10: return .sharpLeft
-        case 11, 12: return .left
-        case 13, 14: return .slightLeft
-        case 26: return .roundabout
-        case 15: return .destination
-        default: return .straight
+    private func mapInstructionTextToDirection(_ text: String) -> NavigationDirection {
+        let lower = text.lowercased()
+        if lower.contains("trái") || lower.contains("left") {
+            if lower.contains("chếch") || lower.contains("slight") {
+                return .slightLeft
+            } else if lower.contains("gắt") || lower.contains("sharp") {
+                return .sharpLeft
+            }
+            return .left
+        } else if lower.contains("phải") || lower.contains("right") {
+            if lower.contains("chếch") || lower.contains("slight") {
+                return .slightRight
+            } else if lower.contains("gắt") || lower.contains("sharp") {
+                return .sharpRight
+            }
+            return .right
+        } else if lower.contains("quay đầu") || lower.contains("u-turn") {
+            return .uTurn
+        } else if lower.contains("vòng xuyến") || lower.contains("bùng binh") || lower.contains("roundabout") {
+            return .roundabout
+        } else if lower.contains("đến") || lower.contains("đích") || lower.contains("arrive") || lower.contains("destination") {
+            return .destination
         }
+        return .straight
     }
 }
 
@@ -217,11 +236,24 @@ extension NavigationEngine: CLLocationManagerDelegate {
         guard let loc = locations.last else { return }
         currentLocation = loc
         
-        // Khi xe di chuyển đến gần ngã rẽ, chuyển sang bước dẫn đường tiếp theo
+        // Cập nhật tốc độ GPS trực tiếp theo thời gian thực (km/h)
+        if loc.speed >= 0 {
+            currentSpeedKmh = loc.speed * 3.6
+        } else {
+            currentSpeedKmh = 0.0
+        }
+        
+        // Khi xe di chuyển đến gần ngã rẽ, tự động chuyển sang bước tiếp theo
         if isNavigating && currentStepIndex < routeSteps.count {
             let target = routeSteps[currentStepIndex].coordinate
             let dist = loc.distance(from: CLLocation(latitude: target.latitude, longitude: target.longitude))
-            if dist < 20.0 { // Đã đi qua ngã rẽ trong 20m
+            
+            // Cập nhật khoảng cách còn lại tới ngã rẽ
+            if dist > 0 && dist < 5000 {
+                currentInstruction.distanceMeters = Int(dist)
+            }
+            
+            if dist < 25.0 { // Đã đi qua ngã rẽ
                 currentStepIndex += 1
                 updateCurrentInstruction()
             }

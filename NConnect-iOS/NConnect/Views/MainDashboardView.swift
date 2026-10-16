@@ -115,9 +115,10 @@ public struct MainDashboardView: View {
     // MARK: - Thẻ thông số xe
     private var telemetryCard: some View {
         HStack(spacing: 16) {
-            // Tốc độ
+            // Tốc độ (Ưu tiên thông số xe CCU, nếu xe chưa chạy thì lấy tốc độ GPS thực tế của iPhone)
             VStack {
-                Text("\(Int(ccuManager.telemetry.speedKmh))")
+                let currentSpeed = ccuManager.telemetry.speedKmh > 0 ? ccuManager.telemetry.speedKmh : navEngine.currentSpeedKmh
+                Text("\(Int(currentSpeed))")
                     .font(.system(size: 38, weight: .heavy, design: .rounded))
                     .foregroundColor(.white)
                 Text("KM/H")
@@ -130,7 +131,7 @@ public struct MainDashboardView: View {
             
             // Vòng tua máy RPM
             VStack {
-                Text("\(ccuManager.telemetry.rpm)")
+                Text(ccuManager.telemetry.rpm > 0 ? "\(ccuManager.telemetry.rpm)" : "--")
                     .font(.system(size: 24, weight: .bold, design: .rounded))
                     .foregroundColor(.cyan)
                 Text("VÒNG/PHÚT")
@@ -143,7 +144,7 @@ public struct MainDashboardView: View {
             
             // Xăng
             VStack {
-                Text("\(ccuManager.telemetry.fuelPercent)%")
+                Text(ccuManager.telemetry.fuelPercent > 0 ? "\(ccuManager.telemetry.fuelPercent)%" : "--%")
                     .font(.system(size: 24, weight: .bold, design: .rounded))
                     .foregroundColor(.orange)
                 Text("NHIÊN LIỆU")
@@ -272,25 +273,56 @@ public struct MainDashboardView: View {
             VStack {
                 HStack {
                     Image(systemName: "magnifyingglass")
+                        .foregroundColor(.cyan)
                     TextField("Nhập tên đường, quán xá, tòa nhà...", text: $searchQuery)
+                        .submitLabel(.search)
+                        .onSubmit {
+                            navEngine.searchPlaces(query: searchQuery)
+                        }
                         .onChange(of: searchQuery) { val in
                             navEngine.searchPlaces(query: val)
                         }
+                    if !searchQuery.isEmpty {
+                        Button(action: {
+                            searchQuery = ""
+                            navEngine.searchResults = []
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.gray)
+                        }
+                    }
                 }
                 .padding()
                 .background(Color(white: 0.1))
                 .cornerRadius(10)
                 .padding(.horizontal)
                 
+                if navEngine.searchResults.isEmpty && !searchQuery.isEmpty {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("Đang tìm '\(searchQuery)' bằng Apple Maps...")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.top, 40)
+                }
+                
                 List(navEngine.searchResults) { item in
                     Button(action: {
                         navEngine.calculateRoute(to: CLLocationCoordinate2D(latitude: item.latitude, longitude: item.longitude))
+                        ccuManager.startStreaming()
                         showSearchSheet = false
                     }) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.title).font(.headline).foregroundColor(.primary)
-                            Text(item.subtitle).font(.caption).foregroundColor(.secondary)
+                        HStack {
+                            Image(systemName: "mappin.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(.cyan)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.title).font(.headline).foregroundColor(.primary)
+                                Text(item.subtitle).font(.caption).foregroundColor(.secondary)
+                            }
                         }
+                        .padding(.vertical, 4)
                     }
                 }
             }
@@ -307,16 +339,29 @@ public struct MainDashboardView: View {
     // MARK: - Sheet danh sách trạm xăng lân cận
     private var gasStationsSheet: some View {
         NavigationView {
-            List(navEngine.nearbyGasStations) { station in
-                Button(action: {
-                    navEngine.calculateRoute(to: CLLocationCoordinate2D(latitude: station.latitude, longitude: station.longitude))
-                    showGasSheet = false
-                }) {
-                    HStack {
-                        Image(systemName: "fuelpump.fill").foregroundColor(.orange)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(station.title).font(.headline).foregroundColor(.primary)
-                            Text(station.subtitle).font(.caption).foregroundColor(.secondary)
+            VStack {
+                if navEngine.nearbyGasStations.isEmpty {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("Đang quét trạm xăng gần bạn trong 5km...")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.top, 40)
+                }
+                
+                List(navEngine.nearbyGasStations) { station in
+                    Button(action: {
+                        navEngine.calculateRoute(to: CLLocationCoordinate2D(latitude: station.latitude, longitude: station.longitude))
+                        ccuManager.startStreaming()
+                        showGasSheet = false
+                    }) {
+                        HStack {
+                            Image(systemName: "fuelpump.fill").foregroundColor(.orange)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(station.title).font(.headline).foregroundColor(.primary)
+                                Text(station.subtitle).font(.caption).foregroundColor(.secondary)
+                            }
                         }
                     }
                 }
