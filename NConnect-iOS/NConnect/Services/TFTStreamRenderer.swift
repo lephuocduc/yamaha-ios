@@ -240,8 +240,11 @@ public final class TFTStreamRenderer: ObservableObject {
         }
     }
     
-    // MARK: - Vẽ banner thông tin phía trên
+    // MARK: - Vẽ banner thông tin phía trên (Chỉ hiển thị khi đang dẫn đường)
     private func drawTopNavigationBanner(in ctx: CGContext, size: CGSize, instruction: NavigationInstruction) {
+        // Chỉ vẽ khung dẫn đường khi đang có lộ trình dẫn đường thực tế
+        guard instruction.isNavigating else { return }
+        
         let bannerRect = CGRect(x: 10, y: 8, width: size.width - 20, height: 50)
         let bannerPath = UIBezierPath(roundedRect: bannerRect, cornerRadius: 8)
         
@@ -252,41 +255,26 @@ public final class TFTStreamRenderer: ObservableObject {
         ctx.setLineWidth(1.5)
         bannerPath.stroke()
         
-        if instruction.isNavigating {
-            // Mũi tên chỉ hướng
-            let arrowSymbol = instruction.direction.iconName
-            if let arrowImage = UIImage(systemName: arrowSymbol)?.withTintColor(.green, renderingMode: .alwaysOriginal) {
-                arrowImage.draw(in: CGRect(x: 20, y: 16, width: 34, height: 34))
-            }
-            
-            // Khoảng cách
-            let distAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 20, weight: .heavy),
-                .foregroundColor: UIColor(red: 0.2, green: 0.9, blue: 0.4, alpha: 1.0)
-            ]
-            instruction.formattedDistance.draw(at: CGPoint(x: 62, y: 14), withAttributes: distAttrs)
-            
-            // Tên đường kế tiếp
-            let roadAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
-                .foregroundColor: UIColor.white
-            ]
-            let roadName = instruction.nextRoadName.isEmpty ? "Đang đi theo lộ trình" : instruction.nextRoadName
-            roadName.draw(at: CGPoint(x: 62, y: 34), withAttributes: roadAttrs)
-        } else {
-            // Chế độ xem bản đồ tự do
-            let titleAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 15, weight: .bold),
-                .foregroundColor: UIColor(red: 0.0, green: 0.8, blue: 1.0, alpha: 1.0)
-            ]
-            "BẢN ĐỒ DẪN ĐƯỜNG YAMAHA".draw(at: CGPoint(x: 22, y: 14), withAttributes: titleAttrs)
-            
-            let subAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 12, weight: .medium),
-                .foregroundColor: UIColor.lightGray
-            ]
-            "NConnect Live Map • Chọn điểm đến để dẫn đường".draw(at: CGPoint(x: 22, y: 34), withAttributes: subAttrs)
+        // Mũi tên chỉ hướng
+        let arrowSymbol = instruction.direction.iconName
+        if let arrowImage = UIImage(systemName: arrowSymbol)?.withTintColor(.green, renderingMode: .alwaysOriginal) {
+            arrowImage.draw(in: CGRect(x: 20, y: 16, width: 34, height: 34))
         }
+        
+        // Khoảng cách
+        let distAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 20, weight: .heavy),
+            .foregroundColor: UIColor(red: 0.2, green: 0.9, blue: 0.4, alpha: 1.0)
+        ]
+        instruction.formattedDistance.draw(at: CGPoint(x: 62, y: 14), withAttributes: distAttrs)
+        
+        // Tên đường kế tiếp
+        let roadAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
+            .foregroundColor: UIColor.white
+        ]
+        let roadName = instruction.nextRoadName.isEmpty ? "Đang đi theo lộ trình" : instruction.nextRoadName
+        roadName.draw(at: CGPoint(x: 62, y: 34), withAttributes: roadAttrs)
     }
     
     // MARK: - Đồng hồ đo tốc độ góc dưới bên trái

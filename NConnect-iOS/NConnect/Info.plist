@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>vi</string>
 	<key>CFBundleDisplayName</key>
-	<string>NConnect</string>
+	<string>MyNMAX</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -19,17 +19,17 @@
 	<key>CFBundleShortVersionString</key>
 	<string>0.5.2</string>
 	<key>CFBundleVersion</key>
-	<string>12</string>
+	<string>13</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>NConnect cần quyền Bluetooth để kết nối với màn hình TFT và hệ thống CCU của xe máy Yamaha.</string>
+	<string>MyNMAX cần quyền Bluetooth để kết nối với màn hình TFT và hệ thống CCU của xe máy Yamaha NMAX.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>NConnect cần quyền Bluetooth để kết nối và truyền dữ liệu dẫn đường lên xe máy.</string>
+	<string>MyNMAX cần quyền Bluetooth để kết nối và truyền dữ liệu dẫn đường lên xe máy.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>NConnect cần vị trí chạy nền để dẫn đường Turn-by-Turn liên tục khi màn hình điện thoại tắt.</string>
+	<string>MyNMAX cần vị trí chạy nền để dẫn đường Turn-by-Turn liên tục khi màn hình điện thoại tắt.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>NConnect cần vị trí của bạn để tính toán lộ trình di chuyển.</string>
+	<string>MyNMAX cần vị trí của bạn để tính toán lộ trình di chuyển.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>

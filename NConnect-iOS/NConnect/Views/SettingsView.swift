@@ -103,7 +103,7 @@ public struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(alignment: .top, spacing: 8) {
                             Text("📱🔒")
-                            Text("Giữ iPhone mở sáng và bật ứng dụng NConnect (không khóa màn hình).")
+                            Text("Giữ iPhone mở sáng và bật ứng dụng MyNMAX (không khóa màn hình).")
                                 .font(.caption)
                         }
                         HStack(alignment: .top, spacing: 8) {
@@ -113,7 +113,7 @@ public struct SettingsView: View {
                         }
                         HStack(alignment: .top, spacing: 8) {
                             Text("🗺️📍")
-                            Text("Vào Cài đặt iPhone > NConnect > Vị trí > Chọn 'Luôn luôn' (Always) & bật 'Vị trí chính xác'.")
+                            Text("Vào Cài đặt iPhone > MyNMAX > Vị trí > Chọn 'Luôn luôn' (Always) & bật 'Vị trí chính xác'.")
                                 .font(.caption)
                         }
                         HStack(alignment: .top, spacing: 8) {
@@ -153,7 +153,7 @@ public struct SettingsView: View {
                         Text("0.5.2 (iOS Port)")
                             .foregroundColor(.secondary)
                     }
-                    Text("NConnect - Dẫn đường và thông báo cho xe máy Yamaha có màn hình TFT.")
+                    Text("MyNMAX - Dẫn đường và thông báo cho xe máy Yamaha NMAX có màn hình TFT.")
                         .font(.caption)
                         .foregroundColor(.gray)
                 }

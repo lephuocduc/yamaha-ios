@@ -43,7 +43,7 @@ public struct MainDashboardView: View {
                     .padding()
                 }
             }
-            .navigationTitle("NConnect")
+            .navigationTitle("MyNMAX")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
