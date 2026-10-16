@@ -195,11 +195,12 @@ public final class TFTStreamRenderer: ObservableObject {
         let metersPerPointY = 550.0 / Double(size.height)
         
         let centerPoint = MKMapPoint(centerCoord)
+        let mapPointsPerMeter = MKMapPointsPerMeterAtLatitude(centerCoord.latitude)
         
         for i in 0..<min(pointCount, 200) {
             let p = points[i]
-            let dxMeters = p.x - centerPoint.x
-            let dyMeters = p.y - centerPoint.y
+            let dxMeters = (p.x - centerPoint.x) / mapPointsPerMeter
+            let dyMeters = (p.y - centerPoint.y) / mapPointsPerMeter
             
             let screenX = size.width / 2.0 + CGFloat(dxMeters / metersPerPointX)
             let screenY = size.height / 2.0 + CGFloat(dyMeters / metersPerPointY)

@@ -155,7 +155,7 @@ public struct LiveNavigationView: View {
     private var mapControlButtons: some View {
         VStack(spacing: 10) {
             Button(action: {
-                trackingMode = .followWithHeading
+                trackingMode = .follow
                 if let loc = navEngine.currentLocation {
                     withAnimation {
                         region.center = loc.coordinate
