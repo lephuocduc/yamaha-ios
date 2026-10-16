@@ -27,12 +27,18 @@ public final class NavigationEngine: NSObject, ObservableObject {
     public override init() {
         super.init()
         locationManager.delegate = self
-        locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
-        locationManager.distanceFilter = 5.0 // Cập nhật mỗi 5 mét khi xe chạy
-        locationManager.allowsBackgroundLocationUpdates = true
-        locationManager.pausesLocationUpdatesAutomatically = false
-        locationManager.requestAlwaysAuthorization()
+        locationManager.desiredAccuracy = kCLLocationAccuracyBest
+        locationManager.distanceFilter = 5.0
+        locationManager.requestWhenInUseAuthorization()
         locationManager.startUpdatingLocation()
+    }
+    
+    private func enableBackgroundUpdatesIfPossible() {
+        let status = locationManager.authorizationStatus
+        if (status == .authorizedAlways || status == .authorizedWhenInUse) {
+            locationManager.allowsBackgroundLocationUpdates = true
+            locationManager.pausesLocationUpdatesAutomatically = false
+        }
     }
     
     // MARK: - Tìm kiếm địa điểm bằng Photon Geocoder (Hỗ trợ tiếng Việt rất tốt)
@@ -127,6 +133,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
                     DispatchQueue.main.async {
                         self?.routeSteps = steps
                         self?.currentStepIndex = 0
+                        self?.enableBackgroundUpdatesIfPossible()
                         self?.isNavigating = true
                         self?.updateCurrentInstruction()
                     }

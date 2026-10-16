@@ -19,7 +19,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>0.5.2</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>2</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
@@ -34,14 +34,6 @@
 	<array>
 		<string>bluetooth-central</string>
 		<string>location</string>
-		<string>external-accessory</string>
-	</array>
-	<key>UISupportedExternalAccessoryProtocols</key>
-	<array>
-		<string>com.garmin.pvt</string>
-		<string>com.garmin.streetcross</string>
-		<string>com.yamaha.ccu</string>
-		<string>com.yamaha.clusterlink</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

@@ -26,9 +26,7 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     
     public override init() {
         super.init()
-        centralManager = CBCentralManager(delegate: self, queue: .main, options: [
-            CBCentralManagerOptionRestoreIdentifierKey: "vn.tftlink.NConnectCCU"
-        ])
+        centralManager = CBCentralManager(delegate: self, queue: .main)
     }
     
     // MARK: - Bắt đầu quét tìm xe
