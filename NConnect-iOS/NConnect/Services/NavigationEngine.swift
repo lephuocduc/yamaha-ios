@@ -205,7 +205,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
         case 11, 12: return .left
         case 13, 14: return .slightLeft
         case 26: return .roundabout
-        case 4, 15: return .destination
+        case 15: return .destination
         default: return .straight
         }
     }

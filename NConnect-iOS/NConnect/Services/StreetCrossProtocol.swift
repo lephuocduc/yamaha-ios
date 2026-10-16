@@ -17,7 +17,7 @@ public final class StreetCrossProtocol {
     }
     
     public private(set) var currentStep: HandshakeStep = .notStarted
-    public private(set) var displaySpec: TFTDisplaySpec = TFTDisplaySpec()
+    public var displaySpec: TFTDisplaySpec = TFTDisplaySpec()
     public private(set) var frameIndex: UInt32 = 0
     
     // Callbacks xử lý sự kiện từ xe
