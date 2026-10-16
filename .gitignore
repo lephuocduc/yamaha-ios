@@ -1,0 +1,30 @@
+# Temporary Reverse Engineering files
+*.apk
+*.dex
+*.log
+META-INF/
+NConnect-0.5.2/
+classes.dex
+dump_manifest.js
+parse_dex.js
+list_packages.js
+inspect_strings.js
+inspect_conn.js
+inspect_ccu.js
+find_ccu_class.js
+list_m3.js
+dump_m3_all.js
+disasm_m3.js
+disasm_run.js
+test_class.js
+disasm_r.js
+inspect_details.js
+
+# Xcode & Build Artifacts
+build/
+DerivedData/
+*.ipa
+Payload/
+.DS_Store
+*.xcuserstate
+xcuserdata/

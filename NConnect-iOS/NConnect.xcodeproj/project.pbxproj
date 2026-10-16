@@ -1,0 +1,311 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 54;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1001 /* NConnectApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2001 /* NConnectApp.swift */; };
+		1002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2002 /* ContentView.swift */; };
+		1003 /* MainDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2003 /* MainDashboardView.swift */; };
+		1004 /* LiveNavigationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2004 /* LiveNavigationView.swift */; };
+		1005 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2005 /* SettingsView.swift */; };
+		1006 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2006 /* Models.swift */; };
+		1007 /* StreetCrossProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2007 /* StreetCrossProtocol.swift */; };
+		1008 /* YamahaCCUManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2008 /* YamahaCCUManager.swift */; };
+		1009 /* NavigationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2009 /* NavigationEngine.swift */; };
+		1010 /* TFTStreamRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2010 /* TFTStreamRenderer.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0001 /* NConnect.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NConnect.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2001 /* NConnectApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NConnectApp.swift; sourceTree = "<group>"; };
+		2002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		2003 /* MainDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainDashboardView.swift; sourceTree = "<group>"; };
+		2004 /* LiveNavigationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveNavigationView.swift; sourceTree = "<group>"; };
+		2005 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		2006 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		2007 /* StreetCrossProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreetCrossProtocol.swift; sourceTree = "<group>"; };
+		2008 /* YamahaCCUManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YamahaCCUManager.swift; sourceTree = "<group>"; };
+		2009 /* NavigationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationEngine.swift; sourceTree = "<group>"; };
+		2010 /* TFTStreamRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TFTStreamRenderer.swift; sourceTree = "<group>"; };
+		2011 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		3001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		4001 = {
+			isa = PBXGroup;
+			children = (
+				4002 /* NConnect */,
+				4007 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		4002 /* NConnect */ = {
+			isa = PBXGroup;
+			children = (
+				2011 /* Info.plist */,
+				4003 /* App */,
+				4004 /* Views */,
+				4005 /* Models */,
+				4006 /* Services */,
+			);
+			path = NConnect;
+			sourceTree = "<group>";
+		};
+		4003 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				2001 /* NConnectApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		4004 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				2002 /* ContentView.swift */,
+				2003 /* MainDashboardView.swift */,
+				2004 /* LiveNavigationView.swift */,
+				2005 /* SettingsView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		4005 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				2006 /* Models.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		4006 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				2007 /* StreetCrossProtocol.swift */,
+				2008 /* YamahaCCUManager.swift */,
+				2009 /* NavigationEngine.swift */,
+				2010 /* TFTStreamRenderer.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		4007 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				0001 /* NConnect.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5001 /* NConnect */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6001 /* Build configuration list for PBXNativeTarget "NConnect" */;
+			buildPhases = (
+				7001 /* Sources */,
+				3001 /* Frameworks */,
+				8001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = NConnect;
+			productName = NConnect;
+			productReference = 0001 /* NConnect.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		9001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					5001 = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = 6002 /* Build configuration list for PBXProject "NConnect" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = vi;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				vi,
+				Base,
+			);
+			mainGroup = 4001;
+			productRefGroup = 4007 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5001 /* NConnect */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		7001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1001 /* NConnectApp.swift in Sources */,
+				1002 /* ContentView.swift in Sources */,
+				1003 /* MainDashboardView.swift in Sources */,
+				1004 /* LiveNavigationView.swift in Sources */,
+				1005 /* SettingsView.swift in Sources */,
+				1006 /* Models.swift in Sources */,
+				1007 /* StreetCrossProtocol.swift in Sources */,
+				1008 /* YamahaCCUManager.swift in Sources */,
+				1009 /* NavigationEngine.swift in Sources */,
+				1010 /* TFTStreamRenderer.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		6003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		6004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_IDENTITY = "";
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		6005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = NConnect/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = vn.tftlink.NConnectIOS;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		6006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_IDENTITY = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = NConnect/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = vn.tftlink.NConnectIOS;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		6001 /* Build configuration list for PBXNativeTarget "NConnect" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6005 /* Debug */,
+				6006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		6002 /* Build configuration list for PBXProject "NConnect" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6003 /* Debug */,
+				6004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = 9001 /* Project object */;
+}

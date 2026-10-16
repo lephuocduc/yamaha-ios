@@ -1,0 +1,48 @@
+name: Build NConnect iOS (.IPA)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # Cho phép bấm nút "Run workflow" thủ công trên web GitHub
+
+jobs:
+  build-ipa:
+    name: Biên dịch file NConnect.ipa
+    runs-on: macos-14
+
+    steps:
+      - name: 1. Tải mã nguồn (Checkout)
+        uses: actions/checkout@v4
+
+      - name: 2. Thiết lập phiên bản Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+          xcodebuild -version
+
+      - name: 3. Biên dịch dự án bằng xcodebuild
+        run: |
+          xcodebuild clean build \
+            -project NConnect-iOS/NConnect.xcodeproj \
+            -scheme NConnect \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: 4. Đóng gói thành file .IPA
+        run: |
+          mkdir -p Payload
+          cp -r build/Build/Products/Release-iphoneos/NConnect.app Payload/
+          zip -r NConnect.ipa Payload
+          ls -la NConnect.ipa
+
+      - name: 5. Xuất file NConnect.ipa để tải về
+        uses: actions/upload-artifact@v4
+        with:
+          name: NConnect-iOS-IPA
+          path: NConnect.ipa
+          retention-days: 14
