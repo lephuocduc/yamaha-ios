@@ -39,15 +39,16 @@ public final class NavigationEngine: NSObject, ObservableObject {
         locationManager.pausesLocationUpdatesAutomatically = false
         locationManager.activityType = .automotiveNavigation
         
+        locationManager.showsBackgroundLocationIndicator = true
+        
         let status = locationManager.authorizationStatus
-        if status == .authorizedAlways {
+        if status == .authorizedAlways || status == .authorizedWhenInUse {
             locationManager.allowsBackgroundLocationUpdates = true
             locationManager.startUpdatingLocation()
             locationManager.startUpdatingHeading()
-        } else if status == .authorizedWhenInUse {
-            locationManager.startUpdatingLocation()
-            locationManager.startUpdatingHeading()
-            locationManager.requestAlwaysAuthorization()
+            if status == .authorizedWhenInUse {
+                locationManager.requestAlwaysAuthorization()
+            }
         } else {
             locationManager.requestAlwaysAuthorization()
         }
@@ -341,12 +342,15 @@ extension NavigationEngine: CLLocationManagerDelegate {
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         switch manager.authorizationStatus {
         case .authorizedWhenInUse:
+            manager.showsBackgroundLocationIndicator = true
+            manager.allowsBackgroundLocationUpdates = true
             manager.pausesLocationUpdatesAutomatically = false
             manager.activityType = .automotiveNavigation
             manager.startUpdatingLocation()
             manager.startUpdatingHeading()
             manager.requestAlwaysAuthorization()
         case .authorizedAlways:
+            manager.showsBackgroundLocationIndicator = true
             manager.allowsBackgroundLocationUpdates = true
             manager.pausesLocationUpdatesAutomatically = false
             manager.activityType = .automotiveNavigation
