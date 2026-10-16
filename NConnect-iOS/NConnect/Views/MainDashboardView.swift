@@ -4,14 +4,16 @@ import CoreLocation
 public struct MainDashboardView: View {
     @ObservedObject var ccuManager: YamahaCCUManager
     @ObservedObject var navEngine: NavigationEngine
+    @ObservedObject var streamRenderer: TFTStreamRenderer
     
     @State private var searchQuery = ""
     @State private var showSearchSheet = false
     @State private var showGasSheet = false
     
-    public init(ccuManager: YamahaCCUManager, navEngine: NavigationEngine) {
+    public init(ccuManager: YamahaCCUManager, navEngine: NavigationEngine, streamRenderer: TFTStreamRenderer) {
         self.ccuManager = ccuManager
         self.navEngine = navEngine
+        self.streamRenderer = streamRenderer
     }
     
     public var body: some View {
@@ -158,11 +160,11 @@ public struct MainDashboardView: View {
         .cornerRadius(16)
     }
     
-    // MARK: - Khung xem trước màn hình TFT
+    // MARK: - Khung xem trước màn hình TFT (Bản đồ thực tế đang chiếu lên xe)
     private var tftPreviewCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("Màn hình TFT của xe", systemImage: "display")
+                Label("Bản đồ chiếu lên xe (TFT Mirror)", systemImage: "map.fill")
                     .font(.headline)
                     .foregroundColor(.white)
                 Spacer()
@@ -172,34 +174,31 @@ public struct MainDashboardView: View {
             }
             
             Button(action: {
-                ccuManager.startStreaming()
+                if ccuManager.state == .streaming {
+                    ccuManager.state = .connected
+                } else {
+                    ccuManager.startStreaming()
+                }
             }) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(Color.black)
-                        .frame(height: 180)
+                        .frame(height: 190)
                         .overlay(RoundedRectangle(cornerRadius: 12).stroke(ccuManager.state == .streaming ? Color.green : Color.cyan.opacity(0.4), lineWidth: 1.5))
                     
-                    VStack(spacing: 8) {
-                        if navEngine.isNavigating {
-                            Image(systemName: navEngine.currentInstruction.direction.iconName)
-                                .font(.system(size: 40))
-                                .foregroundColor(.green)
-                            Text(navEngine.currentInstruction.formattedDistance)
-                                .font(.title2.bold())
-                                .foregroundColor(.white)
-                            Text(navEngine.currentInstruction.nextRoadName)
-                                .font(.subheadline)
-                                .foregroundColor(.gray)
-                                .lineLimit(1)
-                        } else {
-                            Image(systemName: ccuManager.state == .streaming ? "antenna.radiowaves.left.and.right" : "map")
-                                .font(.system(size: 32))
-                                .foregroundColor(ccuManager.state == .streaming ? .green : .cyan)
-                            Text(ccuManager.state == .streaming ? "Đang truyền dữ liệu lên xe" : "Bấm để bắt đầu chiếu lên xe")
+                    if let image = streamRenderer.lastFrameImage {
+                        Image(uiImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity, maxHeight: 190)
+                            .cornerRadius(12)
+                    } else {
+                        VStack(spacing: 8) {
+                            ProgressView()
+                            Text("Đang tạo bản đồ...")
                                 .font(.headline)
                                 .foregroundColor(.white)
-                            Text(ccuManager.state == .streaming ? "Đang phát tín hiệu TFT" : "Chọn điểm đến hoặc bấm vào đây để chiếu")
+                            Text("Bản đồ vệ tinh/đường phố sẽ hiển thị trực tiếp tại đây")
                                 .font(.caption)
                                 .foregroundColor(.gray)
                         }
