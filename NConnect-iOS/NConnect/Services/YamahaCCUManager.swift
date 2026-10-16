@@ -217,19 +217,18 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     log("✓ Mã CCU xe: \(ccuPart) → Gửi phản hồi echo svc 84 + setup burst")
                     writeEAData(NaviLite.frame(6, 84, 1, NaviLite.secDataAckPayload(f.payload)))
                     
-                    // Setup burst cấu hình hiển thị bản đồ
+                    // Setup burst cấu hình hiển thị bản đồ toàn màn hình sạch (Clean Full Map):
+                    // 1. Tắt nút mềm mũi tên lên/xuống zoom (+/-) trên màn hình xe (svc 12 = [0, 0])
+                    // 2. Tắt thanh footer chữ "Road" và chế độ duyệt bản đồ chiếm diện tích (svc 13 = [0, 0])
+                    // 3. Tắt các gói tin chỉ dẫn giả (svc 14 / svc 17) khi chạy tự do
                     let setup: [(UInt8, UInt8, [UInt8])] = [
-                        (2, 0, [0, 0]),
-                        (31, 0, [1, 0]),
-                        (10, 0, [0, 0]),
-                        (11, 0, [0, 0]),
-                        (13, 0, [1, 0]),
-                        (12, 0, [0, 0]),
-                        (14, 1, NaviLite.hexB("07190600302e32206d69")),
-                        (3, 1, []),
-                        (17, 1, NaviLite.hexB("00000000036d7068")),
-                        (13, 0, [1, 0]),
-                        (12, 0, [1, 0])
+                        (2, 0, [0, 0]),     // Guidance: Tắt (không hiện khung hướng dẫn giả)
+                        (31, 0, [1, 0]),    // Display capability: Bật nhận stream
+                        (10, 0, [0, 0]),    // Home menu item: Tắt
+                        (11, 0, [0, 0]),    // Work menu item: Tắt
+                        (13, 0, [0, 0]),    // Browse mode: Tắt (loại bỏ footer Road)
+                        (12, 0, [0, 0]),    // Softkey arrows: Tắt (loại bỏ 2 nút mũi tên lên xuống che bản đồ)
+                        (3, 1, [])          // Route points: Rỗng
                     ]
                     for (s, p, pl) in setup {
                         writeEAData(NaviLite.frame(6, s, p, pl))
