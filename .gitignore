@@ -30,3 +30,5 @@ Payload/
 .DS_Store
 *.xcuserstate
 xcuserdata/
+preview_app.html
+preview/

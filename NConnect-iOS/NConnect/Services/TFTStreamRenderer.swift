@@ -13,29 +13,74 @@ public final class TFTStreamRenderer: ObservableObject {
     public var targetHeight: Int = 234
     
     @Published public var lastFrameImage: UIImage?
-    @Published public var mapRadiusMeters: CLLocationDistance = 450.0
+    public static let zoomLevels: [CLLocationDistance] = [200.0, 400.0, 800.0, 1600.0, 3000.0]
+    @Published public var currentZoomIndex: Int = 1 // Mặc định 400m
+    @Published public var mapRadiusMeters: CLLocationDistance = 400.0
+    
+    public var zoomDescription: String {
+        switch currentZoomIndex {
+        case 0: return "Zoom 4x (200m)"
+        case 1: return "Zoom 2x (400m)"
+        case 2: return "Zoom 1x (800m)"
+        case 3: return "Zoom 0.5x (1.6km)"
+        default: return "Zoom Xa (3km)"
+        }
+    }
     
     private var isSnapshotting: Bool = false
     private var cachedMapImage: UIImage?
     private var lastSnapshotCoord: CLLocationCoordinate2D?
     private var lastSnapshotTime: Date = .distantPast
     
+    // Lưu thông số gần nhất để khi bấm Zoom có thể render lại tức thì
+    private var lastRenderedLocation: CLLocation?
+    private var lastRenderedRoute: MKRoute?
+    private var lastRenderedInstruction: NavigationInstruction?
+    private var lastRenderedSpeedKmh: Double = 0.0
+    private var lastRenderedTelemetry: BikeTelemetry = BikeTelemetry()
+    
     public init(width: Int = 480, height: Int = 234) {
         self.targetWidth = width
         self.targetHeight = height
     }
     
-    // MARK: - Điều chỉnh mức độ Zoom bản đồ (Tương thích nút + / - trên xe)
+    // MARK: - Điều chỉnh mức độ Zoom bản đồ (Tương thích nút + / - trên xe & app)
     public func zoomIn() {
-        mapRadiusMeters = max(120.0, mapRadiusMeters * 0.65)
+        if currentZoomIndex > 0 {
+            currentZoomIndex -= 1
+        } else {
+            return
+        }
+        mapRadiusMeters = Self.zoomLevels[currentZoomIndex]
+        cachedMapImage = nil
         lastSnapshotCoord = nil
         lastSnapshotTime = .distantPast
+        triggerImmediateReRender()
     }
     
     public func zoomOut() {
-        mapRadiusMeters = min(3000.0, mapRadiusMeters * 1.5)
+        if currentZoomIndex < Self.zoomLevels.count - 1 {
+            currentZoomIndex += 1
+        } else {
+            return
+        }
+        mapRadiusMeters = Self.zoomLevels[currentZoomIndex]
+        cachedMapImage = nil
         lastSnapshotCoord = nil
         lastSnapshotTime = .distantPast
+        triggerImmediateReRender()
+    }
+    
+    private func triggerImmediateReRender() {
+        guard let loc = lastRenderedLocation else { return }
+        let inst = lastRenderedInstruction ?? NavigationInstruction()
+        renderLiveMapFrame(
+            location: loc,
+            activeRoute: lastRenderedRoute,
+            instruction: inst,
+            speedKmh: lastRenderedSpeedKmh,
+            telemetry: lastRenderedTelemetry
+        ) { _ in }
     }
     
     // MARK: - Chụp và render khung hình bản đồ động theo vị trí thực tế của xe
@@ -47,6 +92,12 @@ public final class TFTStreamRenderer: ObservableObject {
         telemetry: BikeTelemetry,
         completion: @escaping (Data?) -> Void
     ) {
+        self.lastRenderedLocation = location
+        self.lastRenderedRoute = activeRoute
+        self.lastRenderedInstruction = instruction
+        self.lastRenderedSpeedKmh = speedKmh
+        self.lastRenderedTelemetry = telemetry
+        
         guard let loc = location else {
             // Nếu chưa có vị trí GPS, vẽ khung khởi tạo bản đồ
             let placeholderData = renderFallbackMapFrame(
@@ -245,36 +296,54 @@ public final class TFTStreamRenderer: ObservableObject {
         // Chỉ vẽ khung dẫn đường khi đang có lộ trình dẫn đường thực tế
         guard instruction.isNavigating else { return }
         
-        let bannerRect = CGRect(x: 10, y: 8, width: size.width - 20, height: 50)
+        let bannerRect = CGRect(x: 10, y: 6, width: size.width - 20, height: 46)
         let bannerPath = UIBezierPath(roundedRect: bannerRect, cornerRadius: 8)
         
-        ctx.setFillColor(UIColor(white: 0.08, alpha: 0.88).cgColor)
+        ctx.setFillColor(UIColor(white: 0.08, alpha: 0.92).cgColor)
         bannerPath.fill()
         
-        ctx.setStrokeColor(UIColor(red: 0.0, green: 0.5, blue: 1.0, alpha: 0.7).cgColor)
+        ctx.setStrokeColor(UIColor(red: 0.1, green: 0.85, blue: 0.4, alpha: 0.8).cgColor)
         ctx.setLineWidth(1.5)
         bannerPath.stroke()
         
         // Mũi tên chỉ hướng
         let arrowSymbol = instruction.direction.iconName
-        if let arrowImage = UIImage(systemName: arrowSymbol)?.withTintColor(.green, renderingMode: .alwaysOriginal) {
-            arrowImage.draw(in: CGRect(x: 20, y: 16, width: 34, height: 34))
+        if let arrowImage = UIImage(systemName: arrowSymbol)?.withTintColor(UIColor(red: 0.1, green: 0.95, blue: 0.4, alpha: 1.0), renderingMode: .alwaysOriginal) {
+            arrowImage.draw(in: CGRect(x: 16, y: 9, width: 28, height: 28))
         }
         
-        // Khoảng cách
-        let distAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 20, weight: .heavy),
-            .foregroundColor: UIColor(red: 0.2, green: 0.9, blue: 0.4, alpha: 1.0)
-        ]
-        instruction.formattedDistance.draw(at: CGPoint(x: 62, y: 14), withAttributes: distAttrs)
+        // Dòng chữ điều hướng: Khoảng cách + Tên đường trên cùng 1 hàng, chữ phóng to cực đậm
+        let navText = NSMutableAttributedString()
         
-        // Tên đường kế tiếp
-        let roadAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
-            .foregroundColor: UIColor.white
-        ]
+        // 1. Khoảng cách (ví dụ 45m, 1.2km) - Font 23pt cực to, màu xanh lá neon
+        navText.append(NSAttributedString(
+            string: instruction.formattedDistance + " ",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 23, weight: .heavy),
+                .foregroundColor: UIColor(red: 0.1, green: 0.95, blue: 0.4, alpha: 1.0)
+            ]
+        ))
+        
+        // 2. Ký tự phân cách
+        navText.append(NSAttributedString(
+            string: "• ",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 18, weight: .bold),
+                .foregroundColor: UIColor(white: 0.6, alpha: 1.0)
+            ]
+        ))
+        
+        // 3. Tên đường kế tiếp - Font 20pt to rõ, màu trắng tinh
         let roadName = instruction.nextRoadName.isEmpty ? "Đang đi theo lộ trình" : instruction.nextRoadName
-        roadName.draw(at: CGPoint(x: 62, y: 34), withAttributes: roadAttrs)
+        navText.append(NSAttributedString(
+            string: roadName,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 20, weight: .bold),
+                .foregroundColor: UIColor.white
+            ]
+        ))
+        
+        navText.draw(at: CGPoint(x: 52, y: 10))
     }
     
     // MARK: - Đồng hồ đo tốc độ góc dưới bên trái

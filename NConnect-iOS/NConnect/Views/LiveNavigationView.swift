@@ -23,9 +23,9 @@ public struct LiveNavigationView: View {
     
     public var body: some View {
         ZStack {
-            // 1. Bản đồ vệ tinh & đường phố tương tác toàn màn hình
+            // 1. Bản đồ vệ tinh & đường phố tương tác (chỉ tràn cạnh trên để không che TabBar dưới)
             Map(coordinateRegion: $region, showsUserLocation: true, userTrackingMode: $trackingMode)
-                .ignoresSafeArea()
+                .ignoresSafeArea(edges: .top)
             
             VStack {
                 // 2. Thanh tìm kiếm nhanh hoặc HUD dẫn đường phía trên
@@ -43,7 +43,7 @@ public struct LiveNavigationView: View {
                 
                 // 3. Khung điều khiển & Xem trước khung hình TFT của xe
                 HStack(alignment: .bottom) {
-                    // Nút điều khiển bản đồ
+                    // Nút điều khiển bản đồ & Zoom
                     mapControlButtons
                     
                     Spacer()
@@ -72,12 +72,8 @@ public struct LiveNavigationView: View {
                         }
                     }
                 }
-                .padding()
-                
-                // 4. Thanh tác vụ dưới cùng
-                bottomBar
-                    .padding(.horizontal)
-                    .padding(.bottom, 15)
+                .padding(.horizontal)
+                .padding(.bottom, 12)
             }
         }
         .onReceive(navEngine.$currentLocation) { loc in
@@ -111,39 +107,37 @@ public struct LiveNavigationView: View {
         }
     }
     
-    // MARK: - HUD Dẫn đường Turn-by-Turn
+    // MARK: - HUD Dẫn đường Turn-by-Turn (Dòng chữ to đậm, khoảng cách & tên đường trên 1 hàng)
     private var navigationHUD: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             Image(systemName: navEngine.currentInstruction.direction.iconName)
-                .font(.system(size: 34, weight: .bold))
+                .font(.system(size: 30, weight: .heavy))
                 .foregroundColor(.green)
             
-            VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
                 Text(navEngine.currentInstruction.formattedDistance)
-                    .font(.title2.bold())
+                    .font(.system(size: 22, weight: .heavy))
+                    .foregroundColor(.green)
+                
+                Text("•")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.gray)
+                
+                Text(navEngine.currentInstruction.nextRoadName.isEmpty ? "Đang đi theo lộ trình" : navEngine.currentInstruction.nextRoadName)
+                    .font(.system(size: 18, weight: .bold))
                     .foregroundColor(.white)
-                Text(navEngine.currentInstruction.nextRoadName)
-                    .font(.subheadline)
-                    .foregroundColor(.white.opacity(0.9))
                     .lineLimit(1)
             }
             
             Spacer()
             
-            // Tốc độ km/h
-            VStack {
-                let speed = navEngine.currentSpeedKmh >= 2.5 ? navEngine.currentSpeedKmh : 0.0
-                Text("\(Int(speed))")
-                    .font(.title2.bold())
-                    .foregroundColor(.white)
-                Text("km/h")
-                    .font(.caption2)
-                    .foregroundColor(.gray)
+            Button(action: {
+                navEngine.stopNavigation()
+            }) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(.red.opacity(0.9))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(Color.black.opacity(0.4))
-            .cornerRadius(8)
         }
         .padding(14)
         .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.95))
@@ -151,9 +145,10 @@ public struct LiveNavigationView: View {
         .shadow(radius: 8)
     }
     
-    // MARK: - Nút điều khiển bản đồ
+    // MARK: - Nút điều khiển bản đồ & Phóng to / Thu nhỏ
     private var mapControlButtons: some View {
         VStack(spacing: 10) {
+            // Nút định vị vị trí hiện tại
             Button(action: {
                 trackingMode = .follow
                 if let loc = navEngine.currentLocation {
@@ -171,6 +166,41 @@ public struct LiveNavigationView: View {
                     .shadow(radius: 4)
             }
             
+            // Phóng to (+)
+            Button(action: {
+                withAnimation {
+                    region.span.latitudeDelta = max(0.001, region.span.latitudeDelta * 0.5)
+                    region.span.longitudeDelta = max(0.001, region.span.longitudeDelta * 0.5)
+                }
+                streamRenderer.zoomIn()
+            }) {
+                Image(systemName: "plus")
+                    .font(.title3.bold())
+                    .foregroundColor(.white)
+                    .padding(12)
+                    .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.9))
+                    .clipShape(Circle())
+                    .shadow(radius: 4)
+            }
+            
+            // Thu nhỏ (-)
+            Button(action: {
+                withAnimation {
+                    region.span.latitudeDelta = min(0.05, region.span.latitudeDelta * 2.0)
+                    region.span.longitudeDelta = min(0.05, region.span.longitudeDelta * 2.0)
+                }
+                streamRenderer.zoomOut()
+            }) {
+                Image(systemName: "minus")
+                    .font(.title3.bold())
+                    .foregroundColor(.white)
+                    .padding(12)
+                    .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.9))
+                    .clipShape(Circle())
+                    .shadow(radius: 4)
+            }
+            
+            // Ẩn/Hiện mini preview TFT
             Button(action: {
                 showTFTMiniPreview.toggle()
             }) {
@@ -181,37 +211,6 @@ public struct LiveNavigationView: View {
                     .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.9))
                     .clipShape(Circle())
                     .shadow(radius: 4)
-            }
-        }
-    }
-    
-    // MARK: - Thanh tác vụ dưới cùng
-    private var bottomBar: some View {
-        HStack {
-            if navEngine.isNavigating {
-                Button(action: {
-                    navEngine.stopNavigation()
-                }) {
-                    Label("Dừng lộ trình", systemImage: "xmark.circle.fill")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(Color.red.opacity(0.85))
-                        .cornerRadius(14)
-                }
-            } else {
-                Button(action: {
-                    ccuManager.startStreaming()
-                }) {
-                    Label(ccuManager.state == .streaming ? "Đang chiếu bản đồ lên TFT" : "Chiếu bản đồ lên TFT", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .padding()
-                        .frame(maxWidth: .infinity)
-                        .background(ccuManager.state == .streaming ? Color.green.opacity(0.85) : Color.blue.opacity(0.85))
-                        .cornerRadius(14)
-                }
             }
         }
     }

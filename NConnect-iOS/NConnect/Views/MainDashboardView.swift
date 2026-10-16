@@ -217,6 +217,16 @@ public struct MainDashboardView: View {
                 
                 // Nút Zoom In / Zoom Out trực tiếp trên bản đồ xem trước
                 HStack(spacing: 8) {
+                    Text(streamRenderer.zoomDescription)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(.cyan)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.black.opacity(0.75))
+                        .cornerRadius(6)
+                    
+                    Spacer()
+                    
                     Button(action: { streamRenderer.zoomIn() }) {
                         Image(systemName: "plus")
                             .font(.subheadline.bold())
@@ -224,7 +234,7 @@ public struct MainDashboardView: View {
                             .frame(width: 32, height: 32)
                             .background(Color.black.opacity(0.75))
                             .clipShape(Circle())
-                            .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1))
+                            .overlay(Circle().stroke(Color.cyan.opacity(0.6), lineWidth: 1))
                     }
                     
                     Button(action: { streamRenderer.zoomOut() }) {
@@ -234,7 +244,7 @@ public struct MainDashboardView: View {
                             .frame(width: 32, height: 32)
                             .background(Color.black.opacity(0.75))
                             .clipShape(Circle())
-                            .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1))
+                            .overlay(Circle().stroke(Color.cyan.opacity(0.6), lineWidth: 1))
                     }
                 }
                 .padding(10)
