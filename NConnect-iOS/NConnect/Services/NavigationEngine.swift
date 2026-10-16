@@ -35,11 +35,23 @@ public final class NavigationEngine: NSObject, ObservableObject {
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
-        locationManager.distanceFilter = 3.0
-        locationManager.allowsBackgroundLocationUpdates = true
+        locationManager.distanceFilter = kCLDistanceFilterNone
         locationManager.pausesLocationUpdatesAutomatically = false
-        locationManager.requestAlwaysAuthorization()
-        locationManager.startUpdatingLocation()
+        locationManager.activityType = .automotiveNavigation
+        
+        let status = locationManager.authorizationStatus
+        if status == .authorizedAlways {
+            locationManager.allowsBackgroundLocationUpdates = true
+            locationManager.startUpdatingLocation()
+            locationManager.startUpdatingHeading()
+        } else if status == .authorizedWhenInUse {
+            locationManager.startUpdatingLocation()
+            locationManager.startUpdatingHeading()
+            locationManager.requestAlwaysAuthorization()
+        } else {
+            locationManager.requestAlwaysAuthorization()
+        }
+        
         loadSavedLocations()
     }
     
@@ -329,13 +341,25 @@ extension NavigationEngine: CLLocationManagerDelegate {
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         switch manager.authorizationStatus {
         case .authorizedWhenInUse:
+            manager.pausesLocationUpdatesAutomatically = false
+            manager.activityType = .automotiveNavigation
+            manager.startUpdatingLocation()
+            manager.startUpdatingHeading()
             manager.requestAlwaysAuthorization()
         case .authorizedAlways:
             manager.allowsBackgroundLocationUpdates = true
             manager.pausesLocationUpdatesAutomatically = false
+            manager.activityType = .automotiveNavigation
             manager.startUpdatingLocation()
+            manager.startUpdatingHeading()
+        case .denied, .restricted:
+            print("[Nav] Quyền vị trí GPS bị từ chối")
         default:
             break
         }
+    }
+    
+    public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        print("[Nav] Lỗi cập nhật vị trí GPS: \(error.localizedDescription)")
     }
 }

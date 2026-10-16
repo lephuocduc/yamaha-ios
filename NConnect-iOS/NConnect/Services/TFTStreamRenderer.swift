@@ -28,8 +28,10 @@ public final class TFTStreamRenderer: ObservableObject {
     }
     
     private var isSnapshotting: Bool = false
+    private var activeSnapshotter: MKMapSnapshotter?
     private var cachedMapImage: UIImage?
     private var lastSnapshotCoord: CLLocationCoordinate2D?
+    private var lastSnapshotHeading: CLLocationDirection = 0.0
     private var lastSnapshotTime: Date = .distantPast
     
     // Lưu thông số gần nhất để khi bấm Zoom có thể render lại tức thì
@@ -54,6 +56,7 @@ public final class TFTStreamRenderer: ObservableObject {
         mapRadiusMeters = Self.zoomLevels[currentZoomIndex]
         cachedMapImage = nil
         lastSnapshotCoord = nil
+        lastSnapshotHeading = 0.0
         lastSnapshotTime = .distantPast
         triggerImmediateReRender()
     }
@@ -67,6 +70,7 @@ public final class TFTStreamRenderer: ObservableObject {
         mapRadiusMeters = Self.zoomLevels[currentZoomIndex]
         cachedMapImage = nil
         lastSnapshotCoord = nil
+        lastSnapshotHeading = 0.0
         lastSnapshotTime = .distantPast
         triggerImmediateReRender()
     }
@@ -111,27 +115,53 @@ public final class TFTStreamRenderer: ObservableObject {
         }
         
         let now = Date()
+        let dist = lastSnapshotCoord != nil ? loc.distance(from: CLLocation(latitude: lastSnapshotCoord!.latitude, longitude: lastSnapshotCoord!.longitude)) : 999.0
+        let currentHeading = loc.course >= 0 ? loc.course : 0.0
+        let headingDiff = abs(currentHeading - lastSnapshotHeading)
+        let timeSinceLast = now.timeIntervalSince(lastSnapshotTime)
+        
+        // Điều kiện chụp khung hình bản đồ nền mới:
+        // 1. Chưa có ảnh ban đầu
+        // 2. Xe đã di chuyển hơn 25 mét hoặc rẽ góc lớn hơn 30 độ
+        // 3. Hoặc đã hơn 4 giây và xe có di chuyển
         let shouldTakeNewSnapshot = (cachedMapImage == nil) ||
-            (now.timeIntervalSince(lastSnapshotTime) > 2.0) ||
-            (lastSnapshotCoord != nil && loc.distance(from: CLLocation(latitude: lastSnapshotCoord!.latitude, longitude: lastSnapshotCoord!.longitude)) > 15.0)
+            (dist > 25.0) ||
+            (headingDiff > 30.0 && timeSinceLast >= 2.0) ||
+            (timeSinceLast >= 4.0 && dist > 10.0)
         
         if shouldTakeNewSnapshot && !isSnapshotting {
             isSnapshotting = true
             
+            let padding: CGFloat = 80.0
+            let snapSize = CGSize(width: CGFloat(targetWidth) + padding, height: CGFloat(targetHeight) + padding)
+            
             let options = MKMapSnapshotter.Options()
-            options.size = CGSize(width: targetWidth, height: targetHeight)
-            options.region = MKCoordinateRegion(center: loc.coordinate, latitudinalMeters: mapRadiusMeters, longitudinalMeters: mapRadiusMeters)
+            options.size = snapSize
+            options.camera = MKMapCamera(
+                lookingAtCenter: loc.coordinate,
+                fromDistance: mapRadiusMeters * 2.2,
+                pitch: 0,
+                heading: currentHeading
+            )
             options.mapType = .standard
-            options.traitCollection = UITraitCollection(userInterfaceStyle: .dark) // Giao diện tối chuyên nghiệp cho xe
+            options.traitCollection = UITraitCollection(userInterfaceStyle: .dark)
             
             let snapshotter = MKMapSnapshotter(options: options)
-            snapshotter.start { [weak self] snapshot, error in
+            self.activeSnapshotter = snapshotter // Giữ strong reference để ARC không hủy tác vụ chụp ngầm
+            
+            snapshotter.start(with: .main) { [weak self] snapshot, error in
                 guard let self = self else { return }
                 self.isSnapshotting = false
+                self.activeSnapshotter = nil
+                
+                if let error = error {
+                    print("[TFTStreamRenderer] Lỗi chụp bản đồ: \(error.localizedDescription)")
+                }
                 
                 if let snap = snapshot {
                     self.cachedMapImage = snap.image
                     self.lastSnapshotCoord = loc.coordinate
+                    self.lastSnapshotHeading = currentHeading
                     self.lastSnapshotTime = Date()
                 }
                 
@@ -146,7 +176,7 @@ public final class TFTStreamRenderer: ObservableObject {
                 completion(frameData)
             }
         } else {
-            // Tái sử dụng bản đồ đã cache để vẽ HUD tốc độ/mũi tên mượt mà tức thì
+            // Tái sử dụng bản đồ đã nạp và áp dụng dịch chuyển pixel theo GPS thời gian thực (không độ trễ)
             let frameData = compositeMapWithHUD(
                 mapImage: cachedMapImage,
                 location: loc,
@@ -175,28 +205,48 @@ public final class TFTStreamRenderer: ObservableObject {
             return nil
         }
         
-        // 1. Nền bản đồ thực tế
+        let padding: CGFloat = 80.0
+        let snapSize = CGSize(width: CGFloat(targetWidth) + padding, height: CGFloat(targetHeight) + padding)
+        
+        // 1. Nền bản đồ thực tế với tính toán dịch chuyển pixel liên tục theo GPS
         if let map = mapImage {
-            map.draw(in: CGRect(origin: .zero, size: size))
+            var screenOffsetX: CGFloat = 0.0
+            var screenOffsetY: CGFloat = 0.0
+            
+            if let snapCoord = lastSnapshotCoord {
+                let dLat = (location.coordinate.latitude - snapCoord.latitude) * 111_000.0 // mét về hướng Bắc
+                let dLon = (location.coordinate.longitude - snapCoord.longitude) * 111_000.0 * cos(snapCoord.latitude * .pi / 180.0) // mét về hướng Đông
+                
+                let rad = lastSnapshotHeading * .pi / 180.0
+                let forwardMeters = dLat * cos(rad) + dLon * sin(rad)
+                let rightMeters = dLon * cos(rad) - dLat * sin(rad)
+                
+                let ppm = Double(targetWidth) / (mapRadiusMeters * 2.2)
+                screenOffsetX = CGFloat(rightMeters * ppm)
+                screenOffsetY = CGFloat(-forwardMeters * ppm)
+            }
+            
+            // Căn giữa ảnh đệm (-padding / 2) và trượt theo độ dời GPS tức thời
+            let originX = -padding / 2.0 - screenOffsetX
+            let originY = -padding / 2.0 - screenOffsetY
+            map.draw(in: CGRect(x: originX, y: originY, width: snapSize.width, height: snapSize.height))
         } else {
             ctx.setFillColor(UIColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 1.0).cgColor)
             ctx.fill(CGRect(origin: .zero, size: size))
             drawGridLines(in: ctx, size: size)
         }
         
-        // 2. Vẽ tuyến đường dẫn đường (nếu có lộ trình)
+        // 2. Vẽ tuyến đường dẫn đường (nếu có lộ trình) xoay đồng bộ theo hướng camera
         if let route = activeRoute {
-            drawRoutePolyline(route, in: ctx, size: size, centerCoord: location.coordinate)
+            drawRoutePolyline(route, in: ctx, size: size, centerCoord: location.coordinate, heading: lastSnapshotHeading)
         }
         
-        // 3. Vẽ biểu tượng vị trí xe máy ở giữa màn hình
-        drawMotorcycleMarker(in: ctx, center: CGPoint(x: size.width / 2, y: size.height / 2), heading: location.course)
+        // 3. Vẽ biểu tượng vị trí xe máy ở giữa màn hình (hướng xe tương đối so với camera)
+        let relativeHeading = location.course >= 0 ? (location.course - lastSnapshotHeading) : 0.0
+        drawMotorcycleMarker(in: ctx, center: CGPoint(x: size.width / 2, y: size.height / 2), relativeHeading: relativeHeading)
         
         // 4. Lớp phủ thanh trạng thái phía trên (Top HUD: Tên đường hoặc Hướng rẽ)
         drawTopNavigationBanner(in: ctx, size: size, instruction: instruction)
-        
-        // (Đã bỏ đồng hồ tốc độ và mức xăng trên bản đồ theo yêu cầu người dùng:
-        // xe đã có đồng hồ tốc độ riêng và tránh bị thanh trạng thái xe che)
         
         let finalImage = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()
@@ -210,15 +260,13 @@ public final class TFTStreamRenderer: ObservableObject {
     }
     
     // MARK: - Vẽ biểu tượng xe máy trung tâm
-    private func drawMotorcycleMarker(in ctx: CGContext, center: CGPoint, heading: CLLocationDirection) {
+    private func drawMotorcycleMarker(in ctx: CGContext, center: CGPoint, relativeHeading: CLLocationDirection) {
         ctx.saveGState()
         ctx.translateBy(x: center.x, y: center.y)
         
-        // Xoay theo hướng di chuyển của xe (nếu GPS có course)
-        if heading >= 0 {
-            let radians = CGFloat(heading * .pi / 180.0)
-            ctx.rotate(by: radians)
-        }
+        // Xoay theo góc lệch tương đối của xe so với hướng bản đồ
+        let radians = CGFloat(relativeHeading * .pi / 180.0)
+        ctx.rotate(by: radians)
         
         // Vòng tròn hào quang phát sáng
         ctx.setFillColor(UIColor(red: 0.0, green: 0.6, blue: 1.0, alpha: 0.25).cgColor)
@@ -228,7 +276,7 @@ public final class TFTStreamRenderer: ObservableObject {
         ctx.setFillColor(UIColor(red: 0.0, green: 0.8, blue: 1.0, alpha: 0.8).cgColor)
         ctx.fillEllipse(in: CGRect(x: -10, y: -10, width: 20, height: 20))
         
-        // Mũi tên định hướng xe máy
+        // Mũi tên định hướng xe máy luôn chỉ hướng tiến lên
         let arrow = UIBezierPath()
         arrow.move(to: CGPoint(x: 0, y: -14))
         arrow.addLine(to: CGPoint(x: 7, y: 8))
@@ -242,8 +290,8 @@ public final class TFTStreamRenderer: ObservableObject {
         ctx.restoreGState()
     }
     
-    // MARK: - Vẽ tuyến đường (Route Polyline)
-    private func drawRoutePolyline(_ route: MKRoute, in ctx: CGContext, size: CGSize, centerCoord: CLLocationCoordinate2D) {
+    // MARK: - Vẽ tuyến đường (Route Polyline) xoay đồng bộ theo camera
+    private func drawRoutePolyline(_ route: MKRoute, in ctx: CGContext, size: CGSize, centerCoord: CLLocationCoordinate2D, heading: CLLocationDirection) {
         let pointCount = route.polyline.pointCount
         guard pointCount > 1 else { return }
         
@@ -251,22 +299,28 @@ public final class TFTStreamRenderer: ObservableObject {
         let path = UIBezierPath()
         var hasStarted = false
         
-        // Tính độ lệch tọa độ tương đối so với tâm màn hình
-        let metersPerPointX = 550.0 / Double(size.width)
-        let metersPerPointY = 550.0 / Double(size.height)
-        
         let centerPoint = MKMapPoint(centerCoord)
         let mapPointsPerMeter = MKMapPointsPerMeterAtLatitude(centerCoord.latitude)
+        let ppm = Double(size.width) / (mapRadiusMeters * 2.2)
+        let rad = heading * .pi / 180.0
         
-        for i in 0..<min(pointCount, 200) {
+        for i in 0..<min(pointCount, 250) {
             let p = points[i]
             let dxMeters = (p.x - centerPoint.x) / mapPointsPerMeter
             let dyMeters = (p.y - centerPoint.y) / mapPointsPerMeter
             
-            let screenX = size.width / 2.0 + CGFloat(dxMeters / metersPerPointX)
-            let screenY = size.height / 2.0 + CGFloat(dyMeters / metersPerPointY)
+            // MapPoint y tăng về phía Nam, nên khoảng cách Bắc = -dyMeters
+            let northMeters = -dyMeters
+            let eastMeters = dxMeters
             
-            if screenX >= -50 && screenX <= size.width + 50 && screenY >= -50 && screenY <= size.height + 50 {
+            // Xoay theo camera heading
+            let forwardMeters = northMeters * cos(rad) + eastMeters * sin(rad)
+            let rightMeters = eastMeters * cos(rad) - northMeters * sin(rad)
+            
+            let screenX = size.width / 2.0 + CGFloat(rightMeters * ppm)
+            let screenY = size.height / 2.0 - CGFloat(forwardMeters * ppm)
+            
+            if screenX >= -80 && screenX <= size.width + 80 && screenY >= -80 && screenY <= size.height + 80 {
                 let pt = CGPoint(x: screenX, y: screenY)
                 if !hasStarted {
                     path.move(to: pt)
