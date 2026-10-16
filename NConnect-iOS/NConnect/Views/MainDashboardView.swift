@@ -176,9 +176,15 @@ public struct MainDashboardView: View {
                     .font(.headline)
                     .foregroundColor(.white)
                 Spacer()
-                Text("\(streamRenderer.targetWidth) × \(streamRenderer.targetHeight) px")
-                    .font(.caption)
-                    .foregroundColor(.gray)
+                if !ccuManager.currentRoadNameOnTFT.isEmpty {
+                    Text("▲ \(ccuManager.currentRoadNameOnTFT)")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.green)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.green.opacity(0.15))
+                        .cornerRadius(6)
+                }
             }
             
             ZStack(alignment: .bottomTrailing) {

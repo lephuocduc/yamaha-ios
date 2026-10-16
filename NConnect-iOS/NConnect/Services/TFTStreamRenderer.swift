@@ -78,6 +78,11 @@ public final class TFTStreamRenderer: ObservableObject {
             let rawSpeed = nav.currentSpeedKmh
             let displaySpeed = rawSpeed >= 2.5 ? rawSpeed : 0.0
             
+            let road = nav.currentRoadName
+            if !road.isEmpty && road != "MyNMAX" {
+                ccu.updateCurrentRoadNameOnTFT(road)
+            }
+            
             self.renderLiveMapFrame(
                 location: nav.currentLocation,
                 activeRoute: nav.activeRoute,

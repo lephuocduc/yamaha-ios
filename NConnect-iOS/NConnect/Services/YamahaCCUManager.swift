@@ -27,6 +27,8 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     @Published public var isMFiConnected: Bool = false
     @Published public var mfiAccessoryName: String = ""
     @Published public var mfiStatus: String = "Chưa kết nối màn hình TFT"
+    @Published public var currentRoadNameOnTFT: String = "MyNMAX"
+    public var lastSentRoadName: String = ""
     
     // Callbacks xử lý nút bấm từ cùm tay lái xe (+ / - / Zoom)
     public var onZoomIn: (() -> Void)?
@@ -229,7 +231,11 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     log("✓ Mã CCU xe: \(ccuPart) → Gửi phản hồi echo svc 84 + setup burst")
                     writeEAData(NaviLite.frame(6, 84, 1, NaviLite.secDataAckPayload(f.payload)))
                     
-                    // Setup burst cấu hình hiển thị ban đầu chuẩn Garmin StreetCross (Build 14)
+                    // Setup burst cấu hình hiển thị ban đầu chuẩn Garmin StreetCross
+                    let currentRoad = !self.lastSentRoadName.isEmpty ? self.lastSentRoadName : "MyNMAX"
+                    let roadBytes = [UInt8](currentRoad.prefix(32).utf8)
+                    let roadPayload: [UInt8] = [0x07, 0x19, UInt8(roadBytes.count & 0xff), 0x00] + roadBytes
+                    
                     let setup: [(UInt8, UInt8, [UInt8])] = [
                         (2, 0, [0, 0]),
                         (31, 0, [1, 0]),
@@ -237,7 +243,7 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                         (11, 0, [0, 0]),
                         (13, 0, [1, 0]),
                         (12, 0, [0, 0]),
-                        (14, 1, NaviLite.hexB("07190600302e32206d69")),
+                        (14, 1, roadPayload),
                         (3, 1, []),
                         (17, 1, NaviLite.hexB("00000000036d7068")),
                         (13, 0, [1, 0]),
@@ -440,6 +446,47 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                 self?.runNaviLiteHandshake()
             }
         }
+    }
+    
+    // MARK: - Cập nhật tên con đường xe đang chạy lên thanh footer của màn hình xe (Garmin svc 14)
+    public func updateCurrentRoadNameOnTFT(_ rawRoadName: String) {
+        let clean = cleanVietnameseForGarmin(rawRoadName)
+        guard !clean.isEmpty && clean != lastSentRoadName else { return }
+        lastSentRoadName = clean
+        
+        DispatchQueue.main.async {
+            self.currentRoadNameOnTFT = clean
+        }
+        
+        guard isMFiConnected && eaOutput != nil else { return }
+        
+        let roadBytes = [UInt8](clean.prefix(32).utf8)
+        let len = roadBytes.count
+        var payload: [UInt8] = [0x07, 0x19, UInt8(len & 0xff), UInt8((len >> 8) & 0xff)]
+        payload.append(contentsOf: roadBytes)
+        
+        log("Đồng hồ xe: Cập nhật tên đường footer: ▲ \(clean)")
+        writeEAData(NaviLite.frame(6, 14, 1, payload))
+    }
+    
+    public func cleanVietnameseForGarmin(_ str: String) -> String {
+        var clean = str
+            .replacingOccurrences(of: "đ", with: "d")
+            .replacingOccurrences(of: "Đ", with: "D")
+            .folding(options: .diacriticInsensitive, locale: Locale(identifier: "vi_VN"))
+        
+        if clean.hasPrefix("Duong ") {
+            clean = String(clean.dropFirst(6))
+        } else if clean.hasPrefix("duong ") {
+            clean = String(clean.dropFirst(6))
+        } else if clean.hasPrefix("Pho ") {
+            clean = String(clean.dropFirst(4))
+        } else if clean.hasPrefix("Hem ") {
+            clean = String(clean.dropFirst(4))
+        }
+        
+        clean = clean.filter { $0.isASCII && $0.asciiValue != nil && $0.asciiValue! >= 32 && $0.asciiValue! <= 126 }
+        return clean.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     // MARK: - Truyền khung hình JPEG trực tiếp lên màn hình TFT xe

@@ -18,8 +18,14 @@ public final class NavigationEngine: NSObject, ObservableObject {
     @Published public var homeLocation: SavedLocation?
     @Published public var workLocation: SavedLocation?
     @Published public var favoriteLocations: [SavedLocation] = []
+    @Published public var currentRoadName: String = "MyNMAX"
+    public var onRoadNameChanged: ((String) -> Void)?
     
     private let locationManager = CLLocationManager()
+    private let geocoder = CLGeocoder()
+    private var isGeocoding: Bool = false
+    private var lastGeocodedLocation: CLLocation?
+    private var lastGeocodeTime: Date = .distantPast
     private var routeSteps: [NavigationStep] = []
     private var currentStepIndex: Int = 0
     
@@ -307,6 +313,45 @@ public final class NavigationEngine: NSObject, ObservableObject {
         }
         return .straight
     }
+    
+    // MARK: - Xác định tên con đường xe đang chạy thực tế
+    private func checkCurrentRoadName(at loc: CLLocation) {
+        if isNavigating && currentStepIndex < routeSteps.count {
+            let step = routeSteps[currentStepIndex]
+            let road = step.roadName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !road.isEmpty && road != currentRoadName {
+                self.currentRoadName = road
+                self.currentInstruction.currentRoadName = road
+                self.onRoadNameChanged?(road)
+            }
+            return
+        }
+        
+        let now = Date()
+        let dist = lastGeocodedLocation != nil ? loc.distance(from: lastGeocodedLocation!) : 999.0
+        guard (dist > 30.0 || lastGeocodedLocation == nil) && now.timeIntervalSince(lastGeocodeTime) > 5.0 && !isGeocoding else { return }
+        
+        isGeocoding = true
+        lastGeocodedLocation = loc
+        lastGeocodeTime = now
+        
+        geocoder.reverseGeocodeLocation(loc) { [weak self] placemarks, error in
+            guard let self = self else { return }
+            self.isGeocoding = false
+            
+            if let pm = placemarks?.first {
+                let road = pm.thoroughfare ?? pm.name ?? pm.subLocality ?? ""
+                let trimmed = road.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty && trimmed != self.currentRoadName {
+                    DispatchQueue.main.async {
+                        self.currentRoadName = trimmed
+                        self.currentInstruction.currentRoadName = trimmed
+                        self.onRoadNameChanged?(trimmed)
+                    }
+                }
+            }
+        }
+    }
 }
 
 // MARK: - CLLocationManagerDelegate
@@ -314,6 +359,9 @@ extension NavigationEngine: CLLocationManagerDelegate {
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let loc = locations.last else { return }
         currentLocation = loc
+        
+        // Cập nhật tên con đường xe đang chạy thực tế (ngay cả khi chạy tự do)
+        checkCurrentRoadName(at: loc)
         
         // Cập nhật tốc độ GPS trực tiếp theo thời gian thực (km/h)
         if loc.speed >= 0 {
