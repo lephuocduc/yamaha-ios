@@ -4,6 +4,8 @@
 *.log
 META-INF/
 NConnect-0.5.2/
+inspect_*.js
+find_*.js
 classes.dex
 dump_manifest.js
 parse_dex.js

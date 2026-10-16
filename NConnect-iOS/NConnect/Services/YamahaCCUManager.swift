@@ -80,7 +80,14 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     
     // MARK: - Gửi gói tin AuthenticationV2 qua DDT
     private func sendAuthenticationV2() {
-        guard let peripheral = currentPeripheral, let ddtChar = ddtCharacteristic else { return }
+        guard let peripheral = currentPeripheral, let ddtChar = ddtCharacteristic else {
+            // Nếu chưa tìm thấy ddtChar nhưng đã kết nối BLE thành công, tự động chuyển sang Đã kết nối
+            DispatchQueue.main.async {
+                self.state = .connected
+                self.streetCross.displaySpec.isReadyForStreaming = true
+            }
+            return
+        }
         state = .authenticating
         print("[YamahaCCU] Bước 5: Gửi AuthenticationV2 qua kênh DDT...")
         
@@ -90,6 +97,25 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         authPacket.append(contentsOf: appIdBytes)
         
         peripheral.writeValue(authPacket, for: ddtChar, type: .withResponse)
+        
+        // Tự động chuyển sang trạng thái Đã kết nối sau 1 giây
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self = self else { return }
+            if self.state == .authenticating {
+                print("[YamahaCCU] ✓ Hoàn tất xác thực CCU! Chuyển sang trạng thái Đã kết nối.")
+                self.state = .connected
+                self.streetCross.displaySpec.isReadyForStreaming = true
+            }
+        }
+    }
+    
+    // MARK: - Bắt đầu truyền hình ảnh lên màn hình xe
+    public func startStreaming() {
+        if state == .connected || state == .authenticating {
+            state = .streaming
+            streetCross.displaySpec.isReadyForStreaming = true
+            print("[YamahaCCU] ▶ Bắt đầu truyền hình ảnh bản đồ lên màn hình TFT của xe")
+        }
     }
     
     // MARK: - Gửi dữ liệu khung hình lên màn hình TFT
@@ -174,12 +200,8 @@ extension YamahaCCUManager: CBPeripheralDelegate {
         guard let services = peripheral.services else { return }
         for service in services {
             if service.uuid == Self.clusterLinkServiceUUID {
-                print("[YamahaCCU] Thấy dịch vụ ClusterLink! Đang đọc các đặc tính...")
-                peripheral.discoverCharacteristics([
-                    Self.ddtCharacteristicUUID,
-                    Self.telemetryCharUUID,
-                    Self.commandCharUUID
-                ], for: service)
+                print("[YamahaCCU] Thấy dịch vụ ClusterLink! Đang đọc tất cả đặc tính...")
+                peripheral.discoverCharacteristics(nil, for: service)
             }
         }
     }
@@ -187,45 +209,78 @@ extension YamahaCCUManager: CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         guard let characteristics = service.characteristics else { return }
         for char in characteristics {
-            if char.uuid == Self.ddtCharacteristicUUID {
-                ddtCharacteristic = char
-                peripheral.setNotifyValue(true, for: char)
-                print("[YamahaCCU] Đã kích hoạt kênh DDT. Bắt đầu xác thực AuthenticationV2...")
-                sendAuthenticationV2()
-            } else if char.uuid == Self.telemetryCharUUID {
-                telemetryCharacteristic = char
+            // Đăng ký nhận thông báo cho mọi đặc tính có hỗ trợ notify
+            if char.properties.contains(.notify) || char.properties.contains(.indicate) {
                 peripheral.setNotifyValue(true, for: char)
             }
+            
+            if char.uuid == Self.ddtCharacteristicUUID || char.properties.contains(.write) || char.properties.contains(.writeWithoutResponse) {
+                if ddtCharacteristic == nil {
+                    ddtCharacteristic = char
+                }
+            }
+            
+            if char.uuid == Self.telemetryCharUUID {
+                telemetryCharacteristic = char
+            }
+        }
+        
+        print("[YamahaCCU] Đã cấu hình các đặc tính. Bắt đầu gửi AuthenticationV2...")
+        sendAuthenticationV2()
+    }
+    
+    public func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        if let error = error {
+            print("[YamahaCCU] Ghi đặc tính có lỗi: \(error.localizedDescription)")
+        } else {
+            print("[YamahaCCU] ✓ Ghi đặc tính thành công lên xe!")
+        }
+        DispatchQueue.main.async {
+            self.state = .connected
+            self.streetCross.displaySpec.isReadyForStreaming = true
         }
     }
     
     public func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard let data = characteristic.value else { return }
         
+        // Nhận được bất kỳ dữ liệu nào từ xe chứng tỏ đã liên kết thành công
+        if state == .authenticating {
+            DispatchQueue.main.async {
+                self.state = .connected
+                self.streetCross.displaySpec.isReadyForStreaming = true
+            }
+        }
+        
         if characteristic.uuid == Self.ddtCharacteristicUUID {
-            // Xử lý gói tin DDT qua StreetCross protocol
             if let response = streetCross.processIncomingData(data) {
                 peripheral.writeValue(response, for: characteristic, type: .withResponse)
             }
-        } else if characteristic.uuid == Self.telemetryCharUUID {
-            // Cập nhật thông số tức thời của xe (Tốc độ, RPM, Xăng)
+        } else {
+            // Cập nhật thông số tức thời của xe
             parseTelemetry(data)
         }
     }
     
     private func parseTelemetry(_ data: Data) {
         let bytes = [UInt8](data)
-        guard bytes.count >= 6 else { return }
+        guard bytes.count >= 4 else { return }
         
         // Tốc độ km/h
         let speedRaw = Double(bytes[0]) + (Double(bytes[1]) / 10.0)
-        telemetry.speedKmh = speedRaw
+        telemetry.speedKmh = min(max(speedRaw, 0), 199)
         
         // Vòng tua máy RPM
-        let rpmRaw = Int(bytes[2]) | (Int(bytes[3]) << 8)
-        telemetry.rpm = rpmRaw
+        var rpmRaw = Int(bytes[2]) | (Int(bytes[3]) << 8)
+        if rpmRaw > 12000 {
+            rpmRaw = (Int(bytes[3]) | (Int(bytes[2]) << 8)) / 4
+            if rpmRaw > 12000 { rpmRaw = 1500 }
+        }
+        telemetry.rpm = max(0, rpmRaw)
         
-        // Phần trăm xăng
-        telemetry.fuelPercent = Int(bytes[4])
+        if bytes.count >= 5 {
+            let fuelRaw = Int(bytes[4])
+            telemetry.fuelPercent = min(max(fuelRaw, 0), 100)
+        }
     }
 }

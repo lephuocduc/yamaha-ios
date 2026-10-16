@@ -89,11 +89,15 @@ public struct MainDashboardView: View {
             Spacer()
             
             Button(action: {
-                if ccuManager.state == .disconnected {
+                if ccuManager.state == .disconnected || ccuManager.state == .error {
                     ccuManager.startScanning()
+                } else if ccuManager.state == .connected || ccuManager.state == .authenticating {
+                    ccuManager.startStreaming()
+                } else if ccuManager.state == .streaming {
+                    ccuManager.state = .connected
                 }
             }) {
-                Text(ccuManager.state == .connected || ccuManager.state == .streaming ? "Đã liên kết" : "Kết nối")
+                Text(ccuManager.state == .streaming ? "Đang chiếu TFT" : (ccuManager.state == .connected ? "Chiếu lên xe" : (ccuManager.state == .authenticating ? "Bắt đầu chiếu" : "Kết nối")))
                     .font(.caption.bold())
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
@@ -166,34 +170,38 @@ public struct MainDashboardView: View {
                     .foregroundColor(.gray)
             }
             
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.black)
-                    .frame(height: 180)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.cyan.opacity(0.4), lineWidth: 1.5))
-                
-                VStack(spacing: 8) {
-                    if navEngine.isNavigating {
-                        Image(systemName: navEngine.currentInstruction.direction.iconName)
-                            .font(.system(size: 40))
-                            .foregroundColor(.green)
-                        Text(navEngine.currentInstruction.formattedDistance)
-                            .font(.title2.bold())
-                            .foregroundColor(.white)
-                        Text(navEngine.currentInstruction.nextRoadName)
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
-                            .lineLimit(1)
-                    } else {
-                        Image(systemName: "map")
-                            .font(.system(size: 32))
-                            .foregroundColor(.gray)
-                        Text("Sẵn sàng dẫn đường")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                        Text("Chọn điểm đến để bắt đầu chiếu lên xe")
-                            .font(.caption)
-                            .foregroundColor(.gray)
+            Button(action: {
+                ccuManager.startStreaming()
+            }) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.black)
+                        .frame(height: 180)
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(ccuManager.state == .streaming ? Color.green : Color.cyan.opacity(0.4), lineWidth: 1.5))
+                    
+                    VStack(spacing: 8) {
+                        if navEngine.isNavigating {
+                            Image(systemName: navEngine.currentInstruction.direction.iconName)
+                                .font(.system(size: 40))
+                                .foregroundColor(.green)
+                            Text(navEngine.currentInstruction.formattedDistance)
+                                .font(.title2.bold())
+                                .foregroundColor(.white)
+                            Text(navEngine.currentInstruction.nextRoadName)
+                                .font(.subheadline)
+                                .foregroundColor(.gray)
+                                .lineLimit(1)
+                        } else {
+                            Image(systemName: ccuManager.state == .streaming ? "antenna.radiowaves.left.and.right" : "map")
+                                .font(.system(size: 32))
+                                .foregroundColor(ccuManager.state == .streaming ? .green : .cyan)
+                            Text(ccuManager.state == .streaming ? "Đang truyền dữ liệu lên xe" : "Bấm để bắt đầu chiếu lên xe")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                            Text(ccuManager.state == .streaming ? "Đang phát tín hiệu TFT" : "Chọn điểm đến hoặc bấm vào đây để chiếu")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
                     }
                 }
             }
