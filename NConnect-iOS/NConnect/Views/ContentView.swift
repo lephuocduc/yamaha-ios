@@ -29,39 +29,18 @@ public struct ContentView: View {
         .accentColor(.cyan)
         .preferredColorScheme(.dark)
         .onAppear {
-            UIApplication.shared.isIdleTimerDisabled = true
+            // Cho phép màn hình tắt tự động theo cài đặt của máy
+            UIApplication.shared.isIdleTimerDisabled = false
             ccuManager.onZoomIn = { [weak streamRenderer] in
                 streamRenderer?.zoomIn()
             }
             ccuManager.onZoomOut = { [weak streamRenderer] in
                 streamRenderer?.zoomOut()
             }
-            startStreamingLoop()
+            streamRenderer.startBackgroundStreaming(ccuManager: ccuManager, navEngine: navEngine)
         }
         .onDisappear {
-            UIApplication.shared.isIdleTimerDisabled = false
-            streamTimer?.invalidate()
-        }
-    }
-    
-    // MARK: - Vòng lặp stream hình ảnh bản đồ lên màn hình TFT (1.5s/khung hình)
-    private func startStreamingLoop() {
-        streamTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
-            let rawSpeed = navEngine.currentSpeedKmh
-            let displaySpeed = rawSpeed >= 2.5 ? rawSpeed : 0.0
-            
-            streamRenderer.renderLiveMapFrame(
-                location: navEngine.currentLocation,
-                activeRoute: navEngine.activeRoute,
-                instruction: navEngine.currentInstruction,
-                speedKmh: displaySpeed,
-                telemetry: ccuManager.telemetry
-            ) { [weak ccuManager] frameData in
-                guard let data = frameData, let ccu = ccuManager else { return }
-                if ccu.isMFiConnected || ccu.state == .streaming {
-                    ccu.sendLiveMapFrameToTFT(data)
-                }
-            }
+            streamRenderer.stopBackgroundStreaming()
         }
     }
 }

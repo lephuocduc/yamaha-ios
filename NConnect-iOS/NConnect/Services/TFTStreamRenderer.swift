@@ -34,6 +34,11 @@ public final class TFTStreamRenderer: ObservableObject {
     private var lastSnapshotHeading: CLLocationDirection = 0.0
     private var lastSnapshotTime: Date = .distantPast
     
+    // Quản lý tác vụ chạy ngầm khi màn hình tắt (Background Task Token)
+    private var bgTaskID: UIBackgroundTaskIdentifier = .invalid
+    private var streamSourceTimer: DispatchSourceTimer?
+    private let streamQueue = DispatchQueue(label: "com.mynmax.streamQueue", qos: .userInitiated)
+    
     // Lưu thông số gần nhất để khi bấm Zoom có thể render lại tức thì
     private var lastRenderedLocation: CLLocation?
     private var lastRenderedRoute: MKRoute?
@@ -44,6 +49,55 @@ public final class TFTStreamRenderer: ObservableObject {
     public init(width: Int = 480, height: Int = 234) {
         self.targetWidth = width
         self.targetHeight = height
+    }
+    
+    private func beginBgTask() {
+        endBgTask()
+        bgTaskID = UIApplication.shared.beginBackgroundTask(withName: "TFTMapSnapshot") { [weak self] in
+            self?.activeSnapshotter?.cancel()
+            self?.endBgTask()
+        }
+    }
+    
+    private func endBgTask() {
+        if bgTaskID != .invalid {
+            UIApplication.shared.endBackgroundTask(bgTaskID)
+            bgTaskID = .invalid
+        }
+    }
+    
+    // MARK: - Luồng truyền hình ảnh ngầm liên tục (vẫn chạy trơn tru khi tắt màn hình)
+    public func startBackgroundStreaming(ccuManager: YamahaCCUManager, navEngine: NavigationEngine) {
+        stopBackgroundStreaming()
+        
+        let timer = DispatchSource.makeTimerSource(queue: streamQueue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(1500))
+        timer.setEventHandler { [weak self, weak ccuManager, weak navEngine] in
+            guard let self = self, let ccu = ccuManager, let nav = navEngine else { return }
+            
+            let rawSpeed = nav.currentSpeedKmh
+            let displaySpeed = rawSpeed >= 2.5 ? rawSpeed : 0.0
+            
+            self.renderLiveMapFrame(
+                location: nav.currentLocation,
+                activeRoute: nav.activeRoute,
+                instruction: nav.currentInstruction,
+                speedKmh: displaySpeed,
+                telemetry: ccu.telemetry
+            ) { frameData in
+                guard let data = frameData else { return }
+                if ccu.isMFiConnected || ccu.state == .streaming {
+                    ccu.sendLiveMapFrameToTFT(data)
+                }
+            }
+        }
+        timer.resume()
+        self.streamSourceTimer = timer
+    }
+    
+    public func stopBackgroundStreaming() {
+        streamSourceTimer?.cancel()
+        streamSourceTimer = nil
     }
     
     // MARK: - Điều chỉnh mức độ Zoom bản đồ (Tương thích nút + / - trên xe & app)
@@ -149,8 +203,10 @@ public final class TFTStreamRenderer: ObservableObject {
             let snapshotter = MKMapSnapshotter(options: options)
             self.activeSnapshotter = snapshotter // Giữ strong reference để ARC không hủy tác vụ chụp ngầm
             
+            self.beginBgTask()
             snapshotter.start(with: .main) { [weak self] snapshot, error in
                 guard let self = self else { return }
+                defer { self.endBgTask() }
                 self.isSnapshotting = false
                 self.activeSnapshotter = nil
                 
