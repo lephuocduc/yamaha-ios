@@ -8,9 +8,9 @@ import Combine
 // MARK: - Renderer tạo khung hình Bản Đồ thực tế (Map View) cho màn hình TFT xe máy Yamaha
 public final class TFTStreamRenderer: ObservableObject {
     
-    // Kích thước chuẩn cho màn hình TFT (Yamaha XMAX / NMAX 4.2-inch: 480 x 272 px)
+    // Kích thước chuẩn cho khung hình dẫn đường xe máy Yamaha (NMAX / XMAX: 480 x 234 px; MT-07/09: 480 x 240 px)
     public var targetWidth: Int = 480
-    public var targetHeight: Int = 272
+    public var targetHeight: Int = 234
     
     @Published public var lastFrameImage: UIImage?
     
@@ -19,7 +19,7 @@ public final class TFTStreamRenderer: ObservableObject {
     private var lastSnapshotCoord: CLLocationCoordinate2D?
     private var lastSnapshotTime: Date = .distantPast
     
-    public init(width: Int = 480, height: Int = 272) {
+    public init(width: Int = 480, height: Int = 234) {
         self.targetWidth = width
         self.targetHeight = height
     }

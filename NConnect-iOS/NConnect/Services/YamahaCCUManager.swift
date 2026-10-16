@@ -189,58 +189,75 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Quá trình Bắt tay NaviLite (Garmin StreetCross Handshake)
+    // MARK: - Quá trình Lắng nghe & Bắt tay NaviLite liên tục (Garmin StreetCross Service Dispatcher)
     private func runNaviLiteHandshake() {
         guard !isHandshaking else { return }
         isHandshaking = true
         defer { isHandshaking = false }
         
-        do {
-            log("▶ Bắt đầu bắt tay NaviLite với màn hình TFT...")
-            // 1. Chờ gói tin svc 66 từ xe
-            var f = try readNaviFrame(timeout: 10.0)
-            while f.svc != 66 {
-                f = try readNaviFrame(timeout: 10.0)
+        log("▶ Khởi động bộ nhận lệnh NaviLite liên tục với màn hình TFT...")
+        
+        while isMFiConnected && eaSession != nil {
+            do {
+                // Đọc frame tiếp theo từ xe, timeout 5s để định kỳ kiểm tra kết nối MFi
+                let f = try readNaviFrame(timeout: 5.0)
+                log("[NaviLite] ← Xe gửi svc \(f.svc) (\(f.payload.count)B)")
+                
+                switch f.svc {
+                case 66:
+                    log("✓ Xe gửi svc 66! Gửi phản hồi xác thực svc 81 + svc 33")
+                    writeEAData(NaviLite.frame(6, 81, 0, [1, 0]))
+                    writeEAData(NaviLite.frame(6, 33, 1, NaviLite.hexB("1c07000100000000")))
+                    
+                case 83:
+                    let ccuPart = NaviLite.partNumber(f.payload)
+                    log("✓ Mã CCU xe: \(ccuPart) → Gửi phản hồi echo svc 84 + setup burst")
+                    writeEAData(NaviLite.frame(6, 84, 1, NaviLite.secDataAckPayload(f.payload)))
+                    
+                    // Setup burst cấu hình hiển thị bản đồ
+                    let setup: [(UInt8, UInt8, [UInt8])] = [
+                        (2, 0, [0, 0]),
+                        (31, 0, [1, 0]),
+                        (10, 0, [0, 0]),
+                        (11, 0, [0, 0]),
+                        (13, 0, [1, 0]),
+                        (12, 0, [0, 0]),
+                        (14, 1, NaviLite.hexB("07190600302e32206d69")),
+                        (3, 1, []),
+                        (17, 1, NaviLite.hexB("00000000036d7068")),
+                        (13, 0, [1, 0]),
+                        (12, 0, [1, 0])
+                    ]
+                    for (s, p, pl) in setup {
+                        writeEAData(NaviLite.frame(6, s, p, pl))
+                    }
+                    
+                    DispatchQueue.main.async {
+                        self.state = .streaming
+                        self.streetCross.displaySpec.isReadyForStreaming = true
+                        self.log("🎉 BẮT TAY NAVILITE THÀNH CÔNG! Màn hình TFT đã sẵn sàng nhận hình ảnh bản đồ!")
+                    }
+                    
+                case 55:
+                    log("Menu xe: Bắt đầu nhận hình (55)")
+                    DispatchQueue.main.async {
+                        self.state = .streaming
+                        self.streetCross.displaySpec.isReadyForStreaming = true
+                    }
+                    
+                case 56:
+                    log("Menu xe: Tạm dừng nhận hình (56) → Trả 20")
+                    writeEAData(NaviLite.frame(6, 20, 0, [0, 0]))
+                    
+                default:
+                    break
+                }
+            } catch {
+                // Hết thời gian chờ nhận gói tin trong chu kỳ 5s, tiếp tục lắng nghe nếu còn kết nối
+                continue
             }
-            log("✓ Xe gửi svc 66! Gửi phản hồi xác thực svc 81 + svc 33")
-            writeEAData(NaviLite.frame(6, 81, 0, [1, 0]))
-            writeEAData(NaviLite.frame(6, 33, 1, NaviLite.hexB("1c07000100000000")))
-            
-            // 2. Chờ gói tin svc 83 chứa hạt giống bảo mật & mã CCU
-            f = try readNaviFrame(timeout: 10.0)
-            while f.svc != 83 {
-                f = try readNaviFrame(timeout: 10.0)
-            }
-            let ccuPart = NaviLite.partNumber(f.payload)
-            log("✓ Mã CCU xe: \(ccuPart) → Gửi phản hồi echo svc 84")
-            writeEAData(NaviLite.frame(6, 84, 1, NaviLite.secDataAckPayload(f.payload)))
-            
-            // 3. Gửi chuỗi cấu hình hiển thị ban đầu (Setup burst)
-            let setup: [(UInt8, UInt8, [UInt8])] = [
-                (2, 0, [0, 0]),
-                (31, 0, [1, 0]),
-                (10, 0, [0, 0]),
-                (11, 0, [0, 0]),
-                (13, 0, [1, 0]),
-                (12, 0, [0, 0]),
-                (14, 1, NaviLite.hexB("07190600302e32206d69")),
-                (3, 1, []),
-                (17, 1, NaviLite.hexB("00000000036d7068")),
-                (13, 0, [1, 0]),
-                (12, 0, [1, 0])
-            ]
-            for (s, p, pl) in setup {
-                writeEAData(NaviLite.frame(6, s, p, pl))
-            }
-            
-            DispatchQueue.main.async {
-                self.state = .streaming
-                self.streetCross.displaySpec.isReadyForStreaming = true
-                self.log("🎉 BẮT TAY NAVILITE THÀNH CÔNG! Màn hình TFT xe máy đã sẵn sàng nhận bản đồ trực tiếp!")
-            }
-        } catch {
-            log("✗ Bắt tay NaviLite thất bại: \(error.localizedDescription)")
         }
+        log("Dừng luồng lắng nghe NaviLite do phiên MFi kết thúc.")
     }
     
     // Đọc frame NaviLite từ buffer nhận
@@ -388,6 +405,11 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         streetCross.displaySpec.isReadyForStreaming = true
         log("▶ Bắt đầu truyền dữ liệu bản đồ lên màn hình TFT của xe")
         checkConnectedAccessories()
+        if isMFiConnected && !isHandshaking {
+            Thread.detachNewThread { [weak self] in
+                self?.runNaviLiteHandshake()
+            }
+        }
     }
     
     // MARK: - Truyền khung hình JPEG trực tiếp lên màn hình TFT xe

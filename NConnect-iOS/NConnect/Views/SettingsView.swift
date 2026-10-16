@@ -99,6 +99,34 @@ public struct SettingsView: View {
                     }
                 }
                 
+                Section(header: Text("Khắc phục 'Connection Error' trên màn hình xe")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("📱🔒")
+                            Text("Giữ iPhone mở sáng và bật ứng dụng NConnect (không khóa màn hình).")
+                                .font(.caption)
+                        }
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("ᛒ")
+                            Text("Đảm bảo cả 2 kết nối Bluetooth: BLE (YCCU_...) và MFi (LinkCard).")
+                                .font(.caption)
+                        }
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("🗺️📍")
+                            Text("Vào Cài đặt iPhone > NConnect > Vị trí > Chọn 'Luôn luôn' (Always) & bật 'Vị trí chính xác'.")
+                                .font(.caption)
+                        }
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.cyan)
+                            Text("Bấm nút OK / Chọn ở cùm công tắc tay lái bên trái để tắt cảnh báo trên màn hình xe.")
+                                .font(.caption.bold())
+                                .foregroundColor(.cyan)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                
                 Section(header: Text("Nhật ký kết nối (Diagnostic Log)")) {
                     if ccuManager.diagnosticLogs.isEmpty {
                         Text("Chưa có nhật ký nào.")

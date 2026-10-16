@@ -173,7 +173,7 @@ public struct MainDashboardView: View {
                     .font(.headline)
                     .foregroundColor(.white)
                 Spacer()
-                Text("480 × 272 px")
+                Text("\(streamRenderer.targetWidth) × \(streamRenderer.targetHeight) px")
                     .font(.caption)
                     .foregroundColor(.gray)
             }

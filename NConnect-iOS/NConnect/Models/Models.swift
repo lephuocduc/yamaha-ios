@@ -45,11 +45,11 @@ public struct BikeTelemetry {
 // MARK: - Thông số màn hình TFT nhận diện từ xe
 public struct TFTDisplaySpec {
     public var width: Int = 480
-    public var height: Int = 272
+    public var height: Int = 234
     public var softwarePart: String = "006-B4160"
     public var isReadyForStreaming: Bool = false
     
-    public init(width: Int = 480, height: Int = 272, softwarePart: String = "006-B4160", isReady: Bool = false) {
+    public init(width: Int = 480, height: Int = 234, softwarePart: String = "006-B4160", isReady: Bool = false) {
         self.width = width
         self.height = height
         self.softwarePart = softwarePart

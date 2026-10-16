@@ -65,12 +65,12 @@ public final class StreetCrossProtocol {
             if command == 0x53 || command == 0x83 {
                 // Đọc kích thước màn hình xe trả về (thường là 480x272 hoặc 400x240)
                 var width = 480
-                var height = 272
+                var height = 234
                 if bytes.count >= 6 {
                     width = Int(bytes[2]) | (Int(bytes[3]) << 8)
                     height = Int(bytes[4]) | (Int(bytes[5]) << 8)
                     if width <= 0 || width > 1920 { width = 480 }
-                    if height <= 0 || height > 1080 { height = 272 }
+                    if height <= 0 || height > 1080 { height = 234 }
                 }
                 
                 displaySpec = TFTDisplaySpec(width: width, height: height, softwarePart: Self.softwarePartNumber, isReady: true)

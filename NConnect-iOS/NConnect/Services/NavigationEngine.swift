@@ -31,7 +31,9 @@ public final class NavigationEngine: NSObject, ObservableObject {
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         locationManager.distanceFilter = 3.0
-        locationManager.requestWhenInUseAuthorization()
+        locationManager.allowsBackgroundLocationUpdates = true
+        locationManager.pausesLocationUpdatesAutomatically = false
+        locationManager.requestAlwaysAuthorization()
         locationManager.startUpdatingLocation()
     }
     
@@ -40,6 +42,9 @@ public final class NavigationEngine: NSObject, ObservableObject {
         if (status == .authorizedAlways || status == .authorizedWhenInUse) {
             locationManager.allowsBackgroundLocationUpdates = true
             locationManager.pausesLocationUpdatesAutomatically = false
+        }
+        if status == .authorizedWhenInUse {
+            locationManager.requestAlwaysAuthorization()
         }
     }
     
@@ -257,6 +262,19 @@ extension NavigationEngine: CLLocationManagerDelegate {
                 currentStepIndex += 1
                 updateCurrentInstruction()
             }
+        }
+    }
+    
+    public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        switch manager.authorizationStatus {
+        case .authorizedWhenInUse:
+            manager.requestAlwaysAuthorization()
+        case .authorizedAlways:
+            manager.allowsBackgroundLocationUpdates = true
+            manager.pausesLocationUpdatesAutomatically = false
+            manager.startUpdatingLocation()
+        default:
+            break
         }
     }
 }
