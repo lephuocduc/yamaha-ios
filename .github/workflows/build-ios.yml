@@ -23,6 +23,7 @@ jobs:
 
       - name: 3. Biên dịch dự án bằng xcodebuild
         run: |
+          set -o pipefail
           xcodebuild clean build \
             -project NConnect-iOS/NConnect.xcodeproj \
             -scheme NConnect \
@@ -31,7 +32,15 @@ jobs:
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" 2>&1 | tee xcodebuild.log
+
+      - name: ❌ Hiển thị lỗi nếu biên dịch thất bại
+        if: failure()
+        run: |
+          echo "## ❌ Lỗi biên dịch xcodebuild" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          grep -C 3 -E "(error:|fatal error:)" xcodebuild.log | head -n 100 >> $GITHUB_STEP_SUMMARY || tail -n 60 xcodebuild.log >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: 4. Đóng gói thành file .IPA
         run: |
