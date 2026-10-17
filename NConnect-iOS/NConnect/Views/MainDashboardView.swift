@@ -602,9 +602,9 @@ public struct MainDashboardView: View {
                     // Nút lưu thử vị trí hiện tại
                     Button(action: {
                         if let coord = navEngine.currentLocation?.coordinate {
-                            parkingManager.recordParkingLocation(manualCoord: coord, bikeName: ccuManager.connectedBike?.name ?? "Yamaha NMAX")
+                            parkingManager.recordParkingLocation(coordinate: coord, bikeName: ccuManager.connectedBike?.name ?? "Yamaha NMAX")
                         } else {
-                            parkingManager.recordParkingLocation(manualCoord: CLLocationCoordinate2D(latitude: 10.7769, longitude: 106.7009), bikeName: "Yamaha NMAX")
+                            parkingManager.recordParkingLocation(coordinate: CLLocationCoordinate2D(latitude: 10.7769, longitude: 106.7009), bikeName: "Yamaha NMAX")
                         }
                     }) {
                         Text("Lưu thử")

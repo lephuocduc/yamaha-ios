@@ -140,6 +140,10 @@ public final class ParkingLocationManager: ObservableObject {
     }
     
     // MARK: - Tự động ghi lại vị trí đỗ xe khi tắt khoá xe / ngắt kết nối
+    public func recordParkingLocation(manualCoord: CLLocationCoordinate2D, bikeName: String = "Yamaha NMAX") {
+        recordParkingLocation(coordinate: manualCoord, bikeName: bikeName)
+    }
+    
     public func recordParkingLocation(coordinate: CLLocationCoordinate2D, bikeName: String = "Yamaha NMAX") {
         // Tránh ghi đè nếu toạ độ không hợp lệ (0,0)
         guard coordinate.latitude != 0.0 && coordinate.longitude != 0.0 else { return }
