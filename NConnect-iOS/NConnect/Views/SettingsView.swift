@@ -5,7 +5,8 @@ public struct SettingsView: View {
     
     @AppStorage("selectedBikeModel") private var selectedBikeModel = "Yamaha XMAX 300"
     @AppStorage("autoReconnect") private var autoReconnect = true
-    @AppStorage("osmTileStyle") private var osmTileStyle = "OpenStreetMap Chuẩn (FOSSGIS)"
+    @AppStorage("osmTileStyle") private var osmTileStyle = "CartoDB Voyager (Khuyên dùng - Bản quyền API)"
+    @AppStorage("cartoApiKey") private var cartoApiKey = OSMTileEngine.defaultCartoApiKey
     @AppStorage("valhallaServerUrl") private var valhallaServerUrl = "https://valhalla1.openstreetmap.de"
     
     let bikeModels = [
@@ -18,6 +19,9 @@ public struct SettingsView: View {
     ]
     
     let osmTileStyles = [
+        "CartoDB Voyager (Khuyên dùng - Bản quyền API)",
+        "CartoDB Positron (Bản đồ sáng tối giản)",
+        "CartoDB Dark Matter (Bản đồ đêm chuyên dụng)",
         "OpenStreetMap Chuẩn (FOSSGIS)",
         "OpenStreetMap Quốc Tế (Wikimedia)",
         "OpenStreetMap Xe 2 Bánh (CyclOSM)"
@@ -40,22 +44,28 @@ public struct SettingsView: View {
                     Toggle("Tự động kết nối khi bật xe", isOn: $autoReconnect)
                 }
                 
-                Section(header: Text("Bản đồ & Thuật toán dẫn đường (Mã nguồn mở)")) {
-                    Picker("Giao diện bản đồ hiển thị (OSM)", selection: $osmTileStyle) {
+                Section(header: Text("Bản đồ & Thuật toán dẫn đường")) {
+                    Picker("Giao diện bản đồ hiển thị", selection: $osmTileStyle) {
                         ForEach(osmTileStyles, id: \.self) { style in
                             Text(style).tag(style)
                         }
                     }
-                    .onChange(of: osmTileStyle) { val in
-                        let tmpl: String
-                        if val.contains("Wikimedia") {
-                            tmpl = "https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png"
-                        } else if val.contains("CyclOSM") {
-                            tmpl = "https://a.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png"
-                        } else {
-                            tmpl = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
+                    .onChange(of: osmTileStyle) { _ in
+                        updateTileTemplate()
+                    }
+                    
+                    if osmTileStyle.contains("CartoDB") {
+                        HStack {
+                            Text("Carto API Key")
+                            Spacer()
+                            TextField("API Key", text: $cartoApiKey)
+                                .multilineTextAlignment(.trailing)
+                                .font(.system(size: 13, design: .monospaced))
+                                .foregroundColor(.cyan)
+                                .onChange(of: cartoApiKey) { _ in
+                                    updateTileTemplate()
+                                }
                         }
-                        OSMTileEngine.shared.tileUrlTemplate = tmpl
                     }
                     
                     HStack {
@@ -73,13 +83,13 @@ public struct SettingsView: View {
                     }
                     
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("✓ Tầng hiển thị: Dữ liệu OpenStreetMap (OSM).")
+                        Text("✓ Bản đồ CartoDB Voyager bản quyền với API Key riêng của bạn (sạch bóng, không watermark).")
                             .font(.caption)
                             .foregroundColor(.green)
                         Text("✓ Tầng thuật toán: Valhalla Routing Engine chuyên biệt cho xe máy (tiếng Việt).")
                             .font(.caption)
                             .foregroundColor(.green)
-                        Text("✓ 100% mã nguồn mở & miễn phí, không dùng Google Maps hay Apple Maps.")
+                        Text("✓ Tốc độ nạp ngói cực nhanh qua mạng lưới Carto CDN toàn cầu.")
                             .font(.caption)
                             .foregroundColor(.gray)
                     }
@@ -188,7 +198,7 @@ public struct SettingsView: View {
                     HStack {
                         Text("Phiên bản")
                         Spacer()
-                        Text("0.5.9 (Build 35)")
+                        Text("0.5.10 (Build 36)")
                             .foregroundColor(.secondary)
                     }
                     Text("MyNMAX - Dẫn đường và thông báo cho xe máy Yamaha NMAX có màn hình TFT.")
@@ -197,6 +207,30 @@ public struct SettingsView: View {
                 }
             }
             .navigationTitle("Cài đặt")
+            .onAppear {
+                updateTileTemplate()
+            }
         }
+    }
+    
+    private func updateTileTemplate() {
+        let key = cartoApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? OSMTileEngine.defaultCartoApiKey : cartoApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tmpl: String
+        if osmTileStyle.contains("Voyager") {
+            tmpl = "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=\(key)"
+        } else if osmTileStyle.contains("Positron") {
+            tmpl = "https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png?key=\(key)"
+        } else if osmTileStyle.contains("Dark Matter") {
+            tmpl = "https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=\(key)"
+        } else if osmTileStyle.contains("Wikimedia") {
+            tmpl = "https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png"
+        } else if osmTileStyle.contains("CyclOSM") {
+            tmpl = "https://a.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png"
+        } else {
+            tmpl = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
+        }
+        OSMTileEngine.shared.tileUrlTemplate = tmpl
+        OSMTileEngine.shared.clearMemoryCache()
+        UserDefaults.standard.set(tmpl, forKey: "savedTileUrlTemplate")
     }
 }

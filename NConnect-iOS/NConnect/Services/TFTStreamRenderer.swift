@@ -13,26 +13,47 @@ public final class OSMTileEngine {
     private let cacheDirectory: URL
     private let session: URLSession
     
-    // Mặc định dùng ngói OpenStreetMap chuẩn FOSSGIS (100% dữ liệu OSM, không có hình mờ Watermark, không cần API key)
-    public var tileUrlTemplate: String = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
+    public static let defaultCartoApiKey = "cb1_4mz7_1_fb3f57cfec3a69a35eb8be87"
+    public static let defaultTileUrlTemplate = "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=\(defaultCartoApiKey)"
+    
+    // Mặc định dùng ngói CartoDB Voyager bản quyền chính thức theo API Key của người dùng (không watermark)
+    public var tileUrlTemplate: String
     
     public init() {
+        if UserDefaults.standard.string(forKey: "hasUpdatedToCartoKey_v1") != "true" {
+            UserDefaults.standard.set("true", forKey: "hasUpdatedToCartoKey_v1")
+            UserDefaults.standard.set(Self.defaultTileUrlTemplate, forKey: "savedTileUrlTemplate")
+            UserDefaults.standard.set("CartoDB Voyager (Khuyên dùng - Bản quyền API)", forKey: "osmTileStyle")
+            self.tileUrlTemplate = Self.defaultTileUrlTemplate
+        } else if let saved = UserDefaults.standard.string(forKey: "savedTileUrlTemplate"), !saved.isEmpty {
+            self.tileUrlTemplate = saved
+        } else {
+            self.tileUrlTemplate = Self.defaultTileUrlTemplate
+        }
+        
         memoryCache.countLimit = 400 // Lưu tối đa 400 ngói trong bộ nhớ RAM
         let paths = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)
         
-        // Tự động xóa sạch bộ đệm OSMTiles_v2 cũ để loại bỏ hoàn toàn các ngói dính hình mờ "API KEY REQUIRED" của CartoDB
+        // Dọn dẹp các thư mục cache cũ
+        let oldV3 = paths[0].appendingPathComponent("OSMTiles_v3")
+        try? fileManager.removeItem(at: oldV3)
         let oldV2 = paths[0].appendingPathComponent("OSMTiles_v2")
         try? fileManager.removeItem(at: oldV2)
         let oldV1 = paths[0].appendingPathComponent("OSMTiles")
         try? fileManager.removeItem(at: oldV1)
         
-        cacheDirectory = paths[0].appendingPathComponent("OSMTiles_v3")
+        // Thư mục cache v4 dùng ngói Carto bản quyền sắc nét
+        cacheDirectory = paths[0].appendingPathComponent("OSMTiles_v4")
         try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 5
         config.requestCachePolicy = .returnCacheDataElseLoad
         self.session = URLSession(configuration: config)
+    }
+    
+    public func clearMemoryCache() {
+        memoryCache.removeAllObjects()
     }
     
     public func getCachedTile(x: Int, y: Int, z: Int) -> UIImage? {
@@ -93,8 +114,8 @@ public final class OSMTileEngine {
                 try? data.write(to: fileURL)
                 completion(img)
             } else {
-                // Fallback: Thử máy chủ CyclOSM OpenStreetMap
-                let fbUrlStr = "https://a.tile-cyclosm.openstreetmap.fr/cyclosm/\(z)/\(x)/\(y).png"
+                // Fallback: Thử máy chủ OpenStreetMap FOSSGIS
+                let fbUrlStr = "https://tile.openstreetmap.de/\(z)/\(x)/\(y).png"
                 if let fbUrl = URL(string: fbUrlStr) {
                     var req2 = URLRequest(url: fbUrl)
                     req2.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")

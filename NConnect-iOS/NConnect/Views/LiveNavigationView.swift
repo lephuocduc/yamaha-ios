@@ -891,12 +891,21 @@ public class CustomOSMTileOverlay: MKTileOverlay {
         config.requestCachePolicy = .returnCacheDataElseLoad
         self.session = URLSession(configuration: config)
         
-        // Mặc định dùng ngói OpenStreetMap chuẩn của FOSSGIS (100% dữ liệu OSM, không cần API key)
+        // Mặc định dùng ngói CartoDB Voyager bản quyền chính thức theo API Key của người dùng
         super.init(urlTemplate: template)
         self.canReplaceMapContent = true
         self.maximumZ = 19
         self.tileSize = CGSize(width: 256, height: 256)
         memoryCache.countLimit = 350
+    }
+    
+    public override func url(forTilePath path: MKTileOverlayPath) -> URL {
+        let tmpl = OSMTileEngine.shared.tileUrlTemplate
+        let urlStr = tmpl
+            .replacingOccurrences(of: "{z}", with: "\(path.z)")
+            .replacingOccurrences(of: "{x}", with: "\(path.x)")
+            .replacingOccurrences(of: "{y}", with: "\(path.y)")
+        return URL(string: urlStr) ?? super.url(forTilePath: path)
     }
     
     public override func loadTile(at path: MKTileOverlayPath, result: @escaping (Data?, Error?) -> Void) {
@@ -921,8 +930,8 @@ public class CustomOSMTileOverlay: MKTileOverlay {
                 OSMTileEngine.shared.saveTileData(data, x: path.x, y: path.y, z: path.z)
                 result(data, nil)
             } else {
-                // Fallback: Thử máy chủ CyclOSM OpenStreetMap
-                let fbUrlStr = "https://a.tile-cyclosm.openstreetmap.fr/cyclosm/\(path.z)/\(path.x)/\(path.y).png"
+                // Fallback: Thử máy chủ OpenStreetMap FOSSGIS
+                let fbUrlStr = "https://tile.openstreetmap.de/\(path.z)/\(path.x)/\(path.y).png"
                 if let fbUrl = URL(string: fbUrlStr) {
                     var req = URLRequest(url: fbUrl)
                     req.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
