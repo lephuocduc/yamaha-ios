@@ -18,7 +18,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
     @Published public var isCalculatingRoute: Bool = false
     @Published public var destinationTitle: String = "Điểm đến"
     @Published public var arrivalMessage: String? = nil
-    @Published public var isVoiceGuidanceEnabled: Bool = true
+    @Published public var isVoiceGuidanceEnabled: Bool = false
     
     // Quản lý địa điểm đã lưu (Về nhà, Đi làm, Yêu thích)
     @Published public var homeLocation: SavedLocation?
@@ -738,27 +738,10 @@ public final class NavigationEngine: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Phát âm giọng nói chỉ đường tiếng Việt chuẩn (Text-to-Speech)
+    // MARK: - Giọng nói chỉ đường đã được tắt hoàn toàn theo yêu cầu người dùng
     public func speak(_ text: String) {
-        guard isVoiceGuidanceEnabled else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            let utterance = AVSpeechUtterance(string: text)
-            if let viVoice = AVSpeechSynthesisVoice(language: "vi-VN") {
-                utterance.voice = viVoice
-            }
-            utterance.rate = 0.50
-            utterance.pitchMultiplier = 1.05
-            utterance.volume = 1.0
-            
-            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .voicePrompt, options: [.duckOthers])
-            try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
-            
-            if self.speechSynthesizer.isSpeaking {
-                self.speechSynthesizer.stopSpeaking(at: .immediate)
-            }
-            self.speechSynthesizer.speak(utterance)
-        }
+        // Tắt hoàn toàn giọng nói (không can thiệp AVAudioSession, không gây gián đoạn nhạc tai nghe hoặc đàm thoại)
+        return
     }
     
     // MARK: - Cập nhật khoảng cách còn lại và thời gian dự kiến đến (ETA)

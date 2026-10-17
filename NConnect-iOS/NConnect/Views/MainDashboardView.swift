@@ -10,6 +10,7 @@ public struct MainDashboardView: View {
     @State private var showSearchSheet = false
     @State private var showGasSheet = false
     @State private var settingLocationType: SavedLocation.LocationType? = nil
+    @ObservedObject private var callManager = CallNotificationManager.shared
     
     public init(ccuManager: YamahaCCUManager, navEngine: NavigationEngine, streamRenderer: TFTStreamRenderer) {
         self.ccuManager = ccuManager
@@ -63,6 +64,9 @@ public struct MainDashboardView: View {
                             .shadow(color: Color.green.opacity(0.4), radius: 8)
                         }
                         
+                        // 0. Banner cuộc gọi đến (nếu có)
+                        callNotificationBanner
+                        
                         // 1. Thẻ trạng thái kết nối xe
                         connectionStatusCard
                         
@@ -102,6 +106,86 @@ public struct MainDashboardView: View {
             }
             .sheet(isPresented: $showGasSheet) {
                 gasStationsSheet
+            }
+        }
+    }
+    
+    // MARK: - Banner cảnh báo cuộc gọi đến
+    private var callNotificationBanner: some View {
+        Group {
+            if callManager.isCallRinging {
+                HStack(spacing: 12) {
+                    Image(systemName: "phone.badge.waveform.fill")
+                        .font(.title2)
+                        .foregroundColor(.white)
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("CUỘC GỌI ĐẾN")
+                            .font(.subheadline)
+                            .fontWeight(.heavy)
+                            .foregroundColor(.white)
+                        Text("Bấm (+) trên cùm xe để nghe, (-) để từ chối")
+                            .font(.caption)
+                            .foregroundColor(Color.yellow)
+                    }
+                    
+                    Spacer()
+                    
+                    Button(action: { callManager.answerCall() }) {
+                        Image(systemName: "phone.fill")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .padding(10)
+                            .background(Color.green)
+                            .clipShape(Circle())
+                    }
+                    
+                    Button(action: { callManager.rejectCall() }) {
+                        Image(systemName: "phone.down.fill")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .padding(10)
+                            .background(Color.red)
+                            .clipShape(Circle())
+                    }
+                }
+                .padding()
+                .background(Color(red: 0.82, green: 0.08, blue: 0.16))
+                .cornerRadius(14)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color.yellow, lineWidth: 2)
+                )
+            } else if callManager.isCallConnected {
+                HStack(spacing: 12) {
+                    Image(systemName: "phone.fill")
+                        .font(.title2)
+                        .foregroundColor(.green)
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("ĐANG ĐÀM THOẠI")
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                        Text("Bấm (-) trên cùm xe để kết thúc")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    
+                    Spacer()
+                    
+                    Button(action: { callManager.rejectCall() }) {
+                        Image(systemName: "phone.down.fill")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .padding(10)
+                            .background(Color.red)
+                            .clipShape(Circle())
+                    }
+                }
+                .padding()
+                .background(Color(red: 0.10, green: 0.15, blue: 0.22))
+                .cornerRadius(14)
             }
         }
     }

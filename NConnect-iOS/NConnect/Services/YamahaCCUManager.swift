@@ -17,6 +17,7 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     
     // Giao thức MFi External Accessory của Garmin / Yamaha NaviLite
     public static let dashProtocol = "com.garmin.navilite.data"
+    public static var shared: YamahaCCUManager?
     
     // MARK: - Nhận diện thiết bị CCU chuẩn xe máy Yamaha & Lọc bỏ Smartwatch/Loa/Tai nghe
     public static func isYamahaBikeCCU(name: String, advertisementData: [String: Any]) -> Bool {
@@ -138,12 +139,27 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     
     public override init() {
         super.init()
+        Self.shared = self
         streetCross.onHandlebarButtonReceived = { [weak self] btn in
             switch btn {
             case .zoomIn:
-                DispatchQueue.main.async { self?.onZoomIn?() }
+                DispatchQueue.main.async {
+                    if CallNotificationManager.shared.isCallRinging {
+                        self?.log("Phím cùm xe (+): Đang có cuộc gọi đến -> Trả lời cuộc gọi!")
+                        CallNotificationManager.shared.answerCall()
+                    } else {
+                        self?.onZoomIn?()
+                    }
+                }
             case .zoomOut:
-                DispatchQueue.main.async { self?.onZoomOut?() }
+                DispatchQueue.main.async {
+                    if CallNotificationManager.shared.isCallRinging || CallNotificationManager.shared.isCallConnected {
+                        self?.log("Phím cùm xe (-): Đang có cuộc gọi -> Từ chối / Kết thúc cuộc gọi!")
+                        CallNotificationManager.shared.rejectCall()
+                    } else {
+                        self?.onZoomOut?()
+                    }
+                }
             case .stopRoute:
                 DispatchQueue.main.async { self?.onStopRoute?() }
             default:
@@ -374,7 +390,12 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     // Phản hồi ACK ngay cho xe để xe mở khóa sự kiện phím tiếp theo (chuẩn Lo3/c;->j(""))
                     writeEAData(NaviLite.frame(6, 14, 1, [0x07, 0x1A, 0x00, 0x00]))
                     DispatchQueue.main.async {
-                        self.onZoomIn?()
+                        if CallNotificationManager.shared.isCallRinging {
+                            self.log("Phím cùm xe (+): Đang có cuộc gọi đến -> Trả lời cuộc gọi!")
+                            CallNotificationManager.shared.answerCall()
+                        } else {
+                            self.onZoomIn?()
+                        }
                     }
                     
                 case 52, 54, 58:
@@ -382,7 +403,12 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     // Phản hồi ACK ngay cho xe để xe mở khóa sự kiện phím tiếp theo (chuẩn Lo3/c;->j(""))
                     writeEAData(NaviLite.frame(6, 14, 1, [0x07, 0x1A, 0x00, 0x00]))
                     DispatchQueue.main.async {
-                        self.onZoomOut?()
+                        if CallNotificationManager.shared.isCallRinging || CallNotificationManager.shared.isCallConnected {
+                            self.log("Phím cùm xe (-): Đang có cuộc gọi -> Từ chối / Kết thúc cuộc gọi!")
+                            CallNotificationManager.shared.rejectCall()
+                        } else {
+                            self.onZoomOut?()
+                        }
                     }
                     
                 case 49:

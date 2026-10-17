@@ -249,10 +249,27 @@ public final class TFTStreamRenderer: ObservableObject {
     private var lastRenderedTelemetry: BikeTelemetry = BikeTelemetry()
     private var lastRenderedIsRerouting: Bool = false
     private var lastPrefetchedRouteKey: String = ""
+    private var cancellables = Set<AnyCancellable>()
     
     public init(width: Int = 480, height: Int = 234) {
         self.targetWidth = width
         self.targetHeight = height
+        
+        CallNotificationManager.shared.$isCallRinging
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.triggerImmediateReRender()
+            }
+            .store(in: &cancellables)
+            
+        CallNotificationManager.shared.$isCallConnected
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.triggerImmediateReRender()
+            }
+            .store(in: &cancellables)
     }
     
     private func beginBgTask() {
@@ -648,11 +665,81 @@ public final class TFTStreamRenderer: ObservableObject {
     
     // MARK: - Banner thông tin dẫn đường Turn-by-Turn phía trên màn hình TFT (Bao trọn dải đen trên cùng, Chữ bự, Tương phản cao, ETA góc trên phải)
     private func drawTopNavigationBanner(in ctx: CGContext, size: CGSize, instruction: NavigationInstruction, isRerouting: Bool = false) {
-        guard instruction.isNavigating || isRerouting || instruction.hasArrived else { return }
-        
         // Chiều cao bao trọn thanh header đen trên cùng của màn hình TFT xe máy (từ y: 0, cao 62px)
         let bannerHeight: CGFloat = 62.0
         let bannerRect = CGRect(x: 0, y: 0, width: size.width, height: bannerHeight)
+        
+        // 0. Khi có cuộc gọi đến (Incoming Call Alert - Ưu tiên số 1, hiển thị cả khi chạy tự do lẫn khi dẫn đường)
+        if CallNotificationManager.shared.isCallRinging {
+            ctx.setFillColor(UIColor(red: 0.82, green: 0.08, blue: 0.16, alpha: 0.98).cgColor)
+            ctx.fill(bannerRect)
+            
+            ctx.setStrokeColor(UIColor(red: 1.0, green: 0.88, blue: 0.0, alpha: 1.0).cgColor)
+            ctx.setLineWidth(2.5)
+            ctx.move(to: CGPoint(x: 0, y: bannerHeight))
+            ctx.addLine(to: CGPoint(x: size.width, y: bannerHeight))
+            ctx.strokePath()
+            
+            let callTitle = "📞 CUỘC GỌI ĐẾN"
+            let titleAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 20, weight: .heavy),
+                .foregroundColor: UIColor.white
+            ]
+            let titleSize = (callTitle as NSString).size(withAttributes: titleAttrs)
+            (callTitle as NSString).draw(
+                at: CGPoint(x: size.width / 2.0 - titleSize.width / 2.0, y: 7),
+                withAttributes: titleAttrs
+            )
+            
+            let hintText = "[+] TRẢ LỜI      [-] TỪ CHỐI"
+            let hintAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 15, weight: .heavy),
+                .foregroundColor: UIColor(red: 1.0, green: 0.92, blue: 0.2, alpha: 1.0)
+            ]
+            let hintSize = (hintText as NSString).size(withAttributes: hintAttrs)
+            (hintText as NSString).draw(
+                at: CGPoint(x: size.width / 2.0 - hintSize.width / 2.0, y: 34),
+                withAttributes: hintAttrs
+            )
+            return
+        }
+        
+        // 0.1 Khi đang đàm thoại cuộc gọi
+        if CallNotificationManager.shared.isCallConnected {
+            ctx.setFillColor(UIColor(red: 0.05, green: 0.38, blue: 0.15, alpha: 0.95).cgColor)
+            ctx.fill(bannerRect)
+            
+            ctx.setStrokeColor(UIColor(red: 0.2, green: 1.0, blue: 0.45, alpha: 1.0).cgColor)
+            ctx.setLineWidth(2.0)
+            ctx.move(to: CGPoint(x: 0, y: bannerHeight))
+            ctx.addLine(to: CGPoint(x: size.width, y: bannerHeight))
+            ctx.strokePath()
+            
+            let callTitle = "📞 ĐANG ĐÀM THOẠI"
+            let titleAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 19, weight: .heavy),
+                .foregroundColor: UIColor.white
+            ]
+            let titleSize = (callTitle as NSString).size(withAttributes: titleAttrs)
+            (callTitle as NSString).draw(
+                at: CGPoint(x: size.width / 2.0 - titleSize.width / 2.0, y: 7),
+                withAttributes: titleAttrs
+            )
+            
+            let hintText = "[-] KẾT THÚC CUỘC GỌI"
+            let hintAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 14, weight: .bold),
+                .foregroundColor: UIColor(red: 1.0, green: 0.9, blue: 0.9, alpha: 1.0)
+            ]
+            let hintSize = (hintText as NSString).size(withAttributes: hintAttrs)
+            (hintText as NSString).draw(
+                at: CGPoint(x: size.width / 2.0 - hintSize.width / 2.0, y: 34),
+                withAttributes: hintAttrs
+            )
+            return
+        }
+        
+        guard instruction.isNavigating || isRerouting || instruction.hasArrived else { return }
         
         // 1. Khi đang tự động vẽ lại lộ trình
         if isRerouting {

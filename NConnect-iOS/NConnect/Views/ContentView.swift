@@ -42,11 +42,21 @@ public struct ContentView: View {
         .onAppear {
             // Cho phép màn hình tắt tự động theo cài đặt của máy
             UIApplication.shared.isIdleTimerDisabled = false
-            ccuManager.onZoomIn = { [weak streamRenderer] in
-                streamRenderer?.zoomIn()
+            ccuManager.onZoomIn = { [weak streamRenderer, weak ccuManager] in
+                if CallNotificationManager.shared.isCallRinging {
+                    ccuManager?.log("Phím cùm xe (+): Đang có cuộc gọi đến -> Trả lời cuộc gọi!")
+                    CallNotificationManager.shared.answerCall()
+                } else {
+                    streamRenderer?.zoomIn()
+                }
             }
-            ccuManager.onZoomOut = { [weak streamRenderer] in
-                streamRenderer?.zoomOut()
+            ccuManager.onZoomOut = { [weak streamRenderer, weak ccuManager] in
+                if CallNotificationManager.shared.isCallRinging || CallNotificationManager.shared.isCallConnected {
+                    ccuManager?.log("Phím cùm xe (-): Đang có cuộc gọi -> Từ chối / Kết thúc cuộc gọi!")
+                    CallNotificationManager.shared.rejectCall()
+                } else {
+                    streamRenderer?.zoomOut()
+                }
             }
             ccuManager.onStopRoute = { [weak navEngine] in
                 navEngine?.stopNavigation()

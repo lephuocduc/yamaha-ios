@@ -207,11 +207,44 @@ public struct SettingsView: View {
                     }
                 }
                 
+                Section(header: Text("Thông báo & Cuộc gọi trên xe")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("📩 Nhận tin nhắn SMS / Zalo / Messenger:")
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                        Text("Vào Cài đặt iPhone → Bluetooth → chọn tên xe Yamaha → Bật \"Chia sẻ thông báo hệ thống\". Mọi thông báo sẽ được iOS chuyển thẳng lên màn hình xe.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Divider().background(Color.gray.opacity(0.3))
+                        
+                        Text("📞 Điều khiển cuộc gọi bằng cùm xe:")
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                        Text("• Phím (+): Nhận / Trả lời cuộc gọi đến.\n• Phím (-): Từ chối / Kết thúc cuộc gọi.\n• Khi không có cuộc gọi, phím (+) và (-) dùng để phóng to / thu nhỏ bản đồ.")
+                            .font(.caption)
+                            .foregroundColor(.yellow)
+                        
+                        Divider().background(Color.gray.opacity(0.3))
+                        
+                        Text("💡 Mẹo tự động nghe máy:")
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                        Text("Cài đặt iPhone → Trợ năng → Cảm ứng → Định tuyến âm thanh cuộc gọi → bật \"Tự động trả lời cuộc gọi\" để đàm thoại rảnh tay qua tai nghe nón bảo hiểm.")
+                            .font(.caption)
+                            .foregroundColor(.cyan)
+                    }
+                    .padding(.vertical, 4)
+                }
+                
                 Section(header: Text("Thông tin ứng dụng")) {
                     HStack {
                         Text("Phiên bản")
                         Spacer()
-                        Text("0.5.12 (Build 38)")
+                        Text("0.5.13 (Build 39)")
                             .foregroundColor(.secondary)
                     }
                     Text("MyNMAX - Dẫn đường và thông báo cho xe máy Yamaha có màn hình TFT.")

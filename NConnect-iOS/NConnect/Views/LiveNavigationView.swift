@@ -57,6 +57,7 @@ public struct LiveNavigationView: View {
     @State private var showSearchSheet = false
     @State private var searchQuery = ""
     @State private var showTFTMiniPreview = true
+    @ObservedObject private var callManager = CallNotificationManager.shared
     
     // Quản lý Điểm A (Xuất phát) và Điểm B (Điểm đến)
     @State private var pointA: RoutePointItem? = nil // nil = Vị trí GPS hiện tại của người dùng
@@ -99,6 +100,84 @@ public struct LiveNavigationView: View {
             .ignoresSafeArea(edges: .top)
             
             VStack {
+                // Banner cuộc gọi đến trên màn hình dẫn đường
+                if callManager.isCallRinging {
+                    HStack(spacing: 12) {
+                        Image(systemName: "phone.badge.waveform.fill")
+                            .font(.title2)
+                            .foregroundColor(.white)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("CUỘC GỌI ĐẾN")
+                                .font(.subheadline)
+                                .fontWeight(.heavy)
+                                .foregroundColor(.white)
+                            Text("Bấm (+) trên cùm xe để nghe, (-) để từ chối")
+                                .font(.caption)
+                                .foregroundColor(Color.yellow)
+                        }
+                        
+                        Spacer()
+                        
+                        Button(action: { callManager.answerCall() }) {
+                            Image(systemName: "phone.fill")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .padding(10)
+                                .background(Color.green)
+                                .clipShape(Circle())
+                        }
+                        
+                        Button(action: { callManager.rejectCall() }) {
+                            Image(systemName: "phone.down.fill")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .padding(10)
+                                .background(Color.red)
+                                .clipShape(Circle())
+                        }
+                    }
+                    .padding(12)
+                    .background(Color(red: 0.82, green: 0.08, blue: 0.16))
+                    .cornerRadius(14)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color.yellow, lineWidth: 2)
+                    )
+                    .padding(.horizontal)
+                } else if callManager.isCallConnected {
+                    HStack(spacing: 12) {
+                        Image(systemName: "phone.fill")
+                            .font(.title2)
+                            .foregroundColor(.green)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("ĐANG ĐÀM THOẠI")
+                                .font(.subheadline)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                            Text("Bấm (-) trên cùm xe để kết thúc")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                        
+                        Spacer()
+                        
+                        Button(action: { callManager.rejectCall() }) {
+                            Image(systemName: "phone.down.fill")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                                .padding(10)
+                                .background(Color.red)
+                                .clipShape(Circle())
+                        }
+                    }
+                    .padding(12)
+                    .background(Color(red: 0.10, green: 0.15, blue: 0.22))
+                    .cornerRadius(14)
+                    .padding(.horizontal)
+                }
+                
                 // Thông báo khi xe đã đến nơi đích
                 if let arrivalMsg = navEngine.arrivalMessage {
                     HStack(spacing: 12) {

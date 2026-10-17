@@ -17,6 +17,7 @@
 		1008 /* YamahaCCUManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2008 /* YamahaCCUManager.swift */; };
 		1009 /* NavigationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2009 /* NavigationEngine.swift */; };
 		1010 /* TFTStreamRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2010 /* TFTStreamRenderer.swift */; };
+		1011 /* CallNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2012 /* CallNotificationManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +32,7 @@
 		2008 /* YamahaCCUManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YamahaCCUManager.swift; sourceTree = "<group>"; };
 		2009 /* NavigationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationEngine.swift; sourceTree = "<group>"; };
 		2010 /* TFTStreamRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TFTStreamRenderer.swift; sourceTree = "<group>"; };
+		2012 /* CallNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallNotificationManager.swift; sourceTree = "<group>"; };
 		2011 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -99,6 +101,7 @@
 				2008 /* YamahaCCUManager.swift */,
 				2009 /* NavigationEngine.swift */,
 				2010 /* TFTStreamRenderer.swift */,
+				2012 /* CallNotificationManager.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -188,6 +191,7 @@
 				1008 /* YamahaCCUManager.swift in Sources */,
 				1009 /* NavigationEngine.swift in Sources */,
 				1010 /* TFTStreamRenderer.swift in Sources */,
+				1011 /* CallNotificationManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
