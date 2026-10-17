@@ -147,35 +147,48 @@ public struct SettingsView: View {
                     }
                 }
                 
-                Section(header: Text("Khắc phục 'Connection Error' trên màn hình xe")) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(alignment: .top, spacing: 8) {
-                            Text("📱🔒")
-                            Text("Giữ iPhone mở sáng và bật ứng dụng MyNMAX (không khóa màn hình).")
-                                .font(.caption)
+                Section(header: Text("Nhật ký kết nối & Chẩn đoán (Diagnostic Log)")) {
+                    HStack(spacing: 12) {
+                        Button(action: {
+                            let allLogs = ccuManager.diagnosticLogs.joined(separator: "\n")
+                            UIPasteboard.general.string = allLogs.isEmpty ? "Chưa có log" : allLogs
+                            let generator = UINotificationFeedbackGenerator()
+                            generator.notificationOccurred(.success)
+                        }) {
+                            HStack {
+                                Image(systemName: "doc.on.doc.fill")
+                                Text("Sao chép nhật ký")
+                            }
+                            .font(.caption.bold())
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color.cyan)
+                            .cornerRadius(8)
                         }
-                        HStack(alignment: .top, spacing: 8) {
-                            Text("ᛒ")
-                            Text("Đảm bảo cả 2 kết nối Bluetooth: BLE (YCCU_...) và MFi (LinkCard).")
-                                .font(.caption)
-                        }
-                        HStack(alignment: .top, spacing: 8) {
-                            Text("🗺️📍")
-                            Text("Vào Cài đặt iPhone > MyNMAX > Vị trí > Chọn 'Luôn luôn' (Always) & bật 'Vị trí chính xác'.")
-                                .font(.caption)
-                        }
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.cyan)
-                            Text("Bấm nút OK / Chọn ở cùm công tắc tay lái bên trái để tắt cảnh báo trên màn hình xe.")
-                                .font(.caption.bold())
-                                .foregroundColor(.cyan)
+                        
+                        Button(action: {
+                            let allLogs = ccuManager.diagnosticLogs.joined(separator: "\n")
+                            let av = UIActivityViewController(activityItems: [allLogs], applicationActivities: nil)
+                            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                               let rootVC = windowScene.windows.first?.rootViewController {
+                                rootVC.present(av, animated: true)
+                            }
+                        }) {
+                            HStack {
+                                Image(systemName: "square.and.arrow.up")
+                                Text("Xuất file log")
+                            }
+                            .font(.caption.bold())
+                            .foregroundColor(.cyan)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color.cyan.opacity(0.15))
+                            .cornerRadius(8)
                         }
                     }
                     .padding(.vertical, 4)
-                }
-                
-                Section(header: Text("Nhật ký kết nối (Diagnostic Log)")) {
+                    
                     if ccuManager.diagnosticLogs.isEmpty {
                         Text("Chưa có nhật ký nào.")
                             .font(.caption)
@@ -183,9 +196,9 @@ public struct SettingsView: View {
                     } else {
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: 4) {
-                                ForEach(ccuManager.diagnosticLogs.suffix(30), id: \.self) { logItem in
+                                ForEach(ccuManager.diagnosticLogs.suffix(60), id: \.self) { logItem in
                                     Text(logItem)
-                                        .font(.system(size: 11, design: .monospaced))
+                                        .font(.system(size: 10, design: .monospaced))
                                         .foregroundColor(.green)
                                 }
                             }
@@ -198,10 +211,10 @@ public struct SettingsView: View {
                     HStack {
                         Text("Phiên bản")
                         Spacer()
-                        Text("0.5.11 (Build 37)")
+                        Text("0.5.12 (Build 38)")
                             .foregroundColor(.secondary)
                     }
-                    Text("MyNMAX - Dẫn đường và thông báo cho xe máy Yamaha NMAX có màn hình TFT.")
+                    Text("MyNMAX - Dẫn đường và thông báo cho xe máy Yamaha có màn hình TFT.")
                         .font(.caption)
                         .foregroundColor(.gray)
                 }
@@ -216,21 +229,28 @@ public struct SettingsView: View {
     private func updateTileTemplate() {
         let key = cartoApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? OSMTileEngine.defaultCartoApiKey : cartoApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let tmpl: String
+        let styleKey: String
         if osmTileStyle.contains("Voyager") {
             tmpl = "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=\(key)"
+            styleKey = "voyager"
         } else if osmTileStyle.contains("Positron") {
             tmpl = "https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png?key=\(key)"
+            styleKey = "positron"
         } else if osmTileStyle.contains("Dark Matter") {
             tmpl = "https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png?key=\(key)"
+            styleKey = "darkmatter"
         } else if osmTileStyle.contains("Wikimedia") {
             tmpl = "https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png"
+            styleKey = "wikimedia"
         } else if osmTileStyle.contains("CyclOSM") {
             tmpl = "https://a.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png"
+            styleKey = "cyclosm"
         } else {
             tmpl = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
+            styleKey = "osm_standard"
         }
-        OSMTileEngine.shared.tileUrlTemplate = tmpl
-        OSMTileEngine.shared.clearMemoryCache()
+        OSMTileEngine.shared.updateStyle(template: tmpl, styleKey: styleKey)
         UserDefaults.standard.set(tmpl, forKey: "savedTileUrlTemplate")
+        UserDefaults.standard.set(styleKey, forKey: "savedTileStyleKey")
     }
 }

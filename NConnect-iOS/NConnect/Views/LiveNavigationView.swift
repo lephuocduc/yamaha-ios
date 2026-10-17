@@ -1215,6 +1215,8 @@ public struct OSMMapView: UIViewRepresentable {
         
         // Cấu hình ngói bản đồ OpenStreetMap ở level .aboveRoads
         let osmOverlay = CustomOSMTileOverlay()
+        context.coordinator.currentTileOverlay = osmOverlay
+        context.coordinator.currentTileTemplate = OSMTileEngine.shared.tileUrlTemplate
         mapView.addOverlay(osmOverlay, level: .aboveRoads)
         
         // Thêm nút La bàn MKCompassButton riêng biệt, định vị nằm ngay DƯỚI thanh tìm kiếm / HUD
@@ -1239,6 +1241,17 @@ public struct OSMMapView: UIViewRepresentable {
     }
     
     public func updateUIView(_ uiView: MKMapView, context: Context) {
+        // Tự động tải lại ngói bản đồ khi người dùng thay đổi giao diện bản đồ trong Cài đặt
+        if context.coordinator.currentTileTemplate != OSMTileEngine.shared.tileUrlTemplate {
+            context.coordinator.currentTileTemplate = OSMTileEngine.shared.tileUrlTemplate
+            if let old = context.coordinator.currentTileOverlay {
+                uiView.removeOverlay(old)
+            }
+            let newOverlay = CustomOSMTileOverlay()
+            context.coordinator.currentTileOverlay = newOverlay
+            uiView.addOverlay(newOverlay, level: .aboveRoads)
+        }
+        
         context.coordinator.updateRoute(on: uiView, newRoute: route, coordA: coordA, coordB: coordB)
         context.coordinator.updateDroppedPin(on: uiView, coord: droppedPinCoord)
         
@@ -1325,6 +1338,8 @@ public struct OSMMapView: UIViewRepresentable {
         var compassButton: MKCompassButton?
         var compassTopConstraint: NSLayoutConstraint?
         var compassTrailingConstraint: NSLayoutConstraint?
+        var currentTileOverlay: CustomOSMTileOverlay?
+        var currentTileTemplate: String = ""
         private var lastRouteKey: String = ""
         
         init(_ parent: OSMMapView) {

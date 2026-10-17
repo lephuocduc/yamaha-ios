@@ -18,17 +18,27 @@ public final class OSMTileEngine {
     
     // Mặc định dùng ngói CartoDB Voyager bản quyền chính thức theo API Key của người dùng (không watermark)
     public var tileUrlTemplate: String
+    public var currentStyleKey: String = "voyager"
     
     public init() {
         if UserDefaults.standard.string(forKey: "hasUpdatedToCartoKey_v1") != "true" {
             UserDefaults.standard.set("true", forKey: "hasUpdatedToCartoKey_v1")
             UserDefaults.standard.set(Self.defaultTileUrlTemplate, forKey: "savedTileUrlTemplate")
             UserDefaults.standard.set("CartoDB Voyager (Khuyên dùng - Bản quyền API)", forKey: "osmTileStyle")
+            UserDefaults.standard.set("voyager", forKey: "savedTileStyleKey")
             self.tileUrlTemplate = Self.defaultTileUrlTemplate
-        } else if let saved = UserDefaults.standard.string(forKey: "savedTileUrlTemplate"), !saved.isEmpty {
-            self.tileUrlTemplate = saved
+            self.currentStyleKey = "voyager"
         } else {
-            self.tileUrlTemplate = Self.defaultTileUrlTemplate
+            if let saved = UserDefaults.standard.string(forKey: "savedTileUrlTemplate"), !saved.isEmpty {
+                self.tileUrlTemplate = saved
+            } else {
+                self.tileUrlTemplate = Self.defaultTileUrlTemplate
+            }
+            if let savedKey = UserDefaults.standard.string(forKey: "savedTileStyleKey"), !savedKey.isEmpty {
+                self.currentStyleKey = savedKey
+            } else {
+                self.currentStyleKey = "voyager"
+            }
         }
         
         memoryCache.countLimit = 400 // Lưu tối đa 400 ngói trong bộ nhớ RAM
@@ -56,12 +66,33 @@ public final class OSMTileEngine {
         memoryCache.removeAllObjects()
     }
     
+    public func clearAllCaches() {
+        memoryCache.removeAllObjects()
+        try? fileManager.removeItem(at: cacheDirectory)
+        try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+    }
+    
+    public func updateStyle(template: String, styleKey: String) {
+        self.tileUrlTemplate = template
+        self.currentStyleKey = styleKey
+        clearMemoryCache()
+        NotificationCenter.default.post(name: NSNotification.Name("OSMTileStyleChangedNotification"), object: nil)
+    }
+    
+    private func styleFolderURL() -> URL {
+        let dir = cacheDirectory.appendingPathComponent(currentStyleKey)
+        if !fileManager.fileExists(atPath: dir.path) {
+            try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+    
     public func getCachedTile(x: Int, y: Int, z: Int) -> UIImage? {
-        let key = "\(z)_\(x)_\(y)" as NSString
+        let key = "\(currentStyleKey)_\(z)_\(x)_\(y)" as NSString
         if let cached = memoryCache.object(forKey: key) {
             return cached
         }
-        let fileURL = cacheDirectory.appendingPathComponent("\(z)_\(x)_\(y).png")
+        let fileURL = styleFolderURL().appendingPathComponent("\(z)_\(x)_\(y).png")
         if let data = try? Data(contentsOf: fileURL), data.count > 1000, let img = UIImage(data: data) {
             memoryCache.setObject(img, forKey: key)
             return img
@@ -70,7 +101,7 @@ public final class OSMTileEngine {
     }
     
     public func getCachedTileData(x: Int, y: Int, z: Int) -> Data? {
-        let fileURL = cacheDirectory.appendingPathComponent("\(z)_\(x)_\(y).png")
+        let fileURL = styleFolderURL().appendingPathComponent("\(z)_\(x)_\(y).png")
         if let data = try? Data(contentsOf: fileURL), data.count > 1000 {
             return data
         }
@@ -78,7 +109,7 @@ public final class OSMTileEngine {
     }
     
     public func saveTileData(_ data: Data, x: Int, y: Int, z: Int) {
-        let fileURL = cacheDirectory.appendingPathComponent("\(z)_\(x)_\(y).png")
+        let fileURL = styleFolderURL().appendingPathComponent("\(z)_\(x)_\(y).png")
         try? data.write(to: fileURL)
     }
     
@@ -108,9 +139,9 @@ public final class OSMTileEngine {
                 return
             }
             if let data = data, (response as? HTTPURLResponse)?.statusCode == 200, data.count > 1000, let img = UIImage(data: data) {
-                let key = "\(z)_\(x)_\(y)" as NSString
+                let key = "\(self.currentStyleKey)_\(z)_\(x)_\(y)" as NSString
                 self.memoryCache.setObject(img, forKey: key)
-                let fileURL = self.cacheDirectory.appendingPathComponent("\(z)_\(x)_\(y).png")
+                let fileURL = self.styleFolderURL().appendingPathComponent("\(z)_\(x)_\(y).png")
                 try? data.write(to: fileURL)
                 completion(img)
             } else {
@@ -126,9 +157,9 @@ public final class OSMTileEngine {
                             return
                         }
                         if let d2 = d2, (r2 as? HTTPURLResponse)?.statusCode == 200, d2.count > 1000, let img2 = UIImage(data: d2) {
-                            let key = "\(z)_\(x)_\(y)" as NSString
+                            let key = "\(self.currentStyleKey)_\(z)_\(x)_\(y)" as NSString
                             self.memoryCache.setObject(img2, forKey: key)
-                            let fileURL = self.cacheDirectory.appendingPathComponent("\(z)_\(x)_\(y).png")
+                            let fileURL = self.styleFolderURL().appendingPathComponent("\(z)_\(x)_\(y).png")
                             try? d2.write(to: fileURL)
                             completion(img2)
                         } else {
@@ -257,15 +288,14 @@ public final class TFTStreamRenderer: ObservableObject {
             } else if !nav.currentInstruction.nextRoadName.isEmpty {
                 road = nav.currentInstruction.nextRoadName
             } else {
-                road = ""
+                road = "Yamaha NMAX"
             }
-            if nav.isNavigating && !road.isEmpty {
-                ccu.updateCurrentRoadNameOnTFT(
-                    road,
-                    distanceMeters: Double(nav.currentInstruction.distanceMeters),
-                    maneuverIcon: UInt8(nav.currentInstruction.direction.rawValue)
-                )
-            }
+            // Luôn cập nhật tên đường lên thanh footer của màn hình TFT (kể cả khi chạy tự do không có lộ trình)
+            ccu.updateCurrentRoadNameOnTFT(
+                road,
+                distanceMeters: Double(nav.currentInstruction.distanceMeters),
+                maneuverIcon: UInt8(nav.currentInstruction.direction.rawValue)
+            )
             
             self.renderLiveMapFrame(
                 location: nav.currentLocation,

@@ -460,9 +460,12 @@ public final class NavigationEngine: NSObject, ObservableObject {
             "costing": "motorcycle",
             "costing_options": [
                 "motorcycle": [
-                    "use_highways": 0.0, // 0.0 = TUYỆT ĐỐI KHÔNG ĐI VÀO ĐƯỜNG CAO TỐC (Cấm xe máy ở VN)
-                    "use_tolls": 0.0,    // 0.0 = Không đi vào đường thu phí cao tốc
-                    "use_trails": 0.0
+                    "use_highways": 0.0,  // Tuyệt đối không đi vào đường cao tốc cấm xe máy ở VN
+                    "use_primary": 0.9,   // Ưu tiên đi các tuyến đường lớn, đại lộ chính rộng thoáng
+                    "use_tolls": 0.0,     // Tránh trạm thu phí
+                    "use_trails": 0.0,    // Tránh đường mòn, lối đi bộ
+                    "alley_factor": 5.0,  // Phạt nặng việc rẽ vào ngõ ngách, đường hẻm nhỏ hẹp
+                    "top_speed": 65       // Tốc độ di chuyển thực tế của xe máy
                 ]
             ],
             "directions_options": [

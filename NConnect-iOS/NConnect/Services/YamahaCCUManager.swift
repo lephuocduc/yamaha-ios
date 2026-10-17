@@ -165,8 +165,8 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         print(line)
         DispatchQueue.main.async {
             self.diagnosticLogs.append(line)
-            if self.diagnosticLogs.count > 150 {
-                self.diagnosticLogs.removeFirst(self.diagnosticLogs.count - 150)
+            if self.diagnosticLogs.count > 500 {
+                self.diagnosticLogs.removeFirst(self.diagnosticLogs.count - 500)
             }
         }
     }
@@ -581,10 +581,12 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Cập nhật tên con đường xe đang chạy lên thanh footer của màn hình xe (Garmin svc 2, svc 4 & svc 1)
+    // MARK: - Cập nhật tên con đường xe đang chạy lên thanh footer của màn hình xe (Chuẩn Garmin svc 2 & svc 4)
     public func updateCurrentRoadNameOnTFT(_ rawRoadName: String, distanceMeters: Double = 0.0, maneuverIcon: UInt8 = 0) {
-        let clean = cleanVietnameseForGarmin(rawRoadName)
-        guard !clean.isEmpty && clean != "MyNMAX" else { return }
+        var clean = cleanVietnameseForGarmin(rawRoadName)
+        if clean.isEmpty {
+            clean = "Yamaha NMAX"
+        }
         lastSentRoadName = clean
         
         DispatchQueue.main.async {
@@ -593,10 +595,10 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         
         guard isMFiConnected && eaOutput != nil else { return }
         
-        // 1. GỬI SERVICE 2: Báo đồng hồ xe BẬT khung dẫn đường (Active Navigation Mode: [1, 0])
+        // 1. GỬI SERVICE 2 (PDT 0): Báo đồng hồ xe BẬT khung dẫn đường (Active Navigation Mode: [1, 0])
         writeEAData(NaviLite.frame(6, 2, 0, [1, 0]))
         
-        // 2. GỬI SERVICE 4: Chuẩn giao tiếp Garmin StreetCross của xe Yamaha NMAX/XMAX để hiển thị tên đường ở thanh footer
+        // 2. GỬI SERVICE 4 (PDT 1): Chuẩn giao tiếp Garmin StreetCross của xe Yamaha NMAX/XMAX để hiển thị tên đường ở thanh footer
         var unitStr = "m"
         var distVal = Float(distanceMeters)
         if distanceMeters >= 1000.0 {
@@ -607,7 +609,9 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         let roadBytes = [UInt8](clean.prefix(140).utf8)
         
         var s4 = [UInt8]()
-        s4.append(maneuverIcon)
+        // Mũi tên: nếu icon = 0 (đi thẳng/chạy tự do), gán icon = 1 (mũi tên đi thẳng chuẩn StreetCross)
+        let iconByte = maneuverIcon == 0 ? 1 : maneuverIcon
+        s4.append(iconByte)
         var floatLE = distVal.bitPattern.littleEndian
         withUnsafeBytes(of: floatLE) { s4.append(contentsOf: $0) }
         s4.append(UInt8(unitBytes.count))
@@ -615,17 +619,15 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         s4.append(contentsOf: unitBytes)
         s4.append(contentsOf: roadBytes)
         
-        log("Đồng hồ xe: Gửi Service 4 cập nhật footer: ▲ \(clean)")
         writeEAData(NaviLite.frame(6, 4, 1, s4))
         
-        // 3. GỬI SERVICE 1 LỆNH 3: Chuẩn APK Lo3/c;->b(bytes, 1, 3) để cập nhật trực tiếp chuỗi tên đường cho đồng hồ
-        writeEAData(NaviLite.frame(6, 1, 3, roadBytes))
-        
-        // 4. GỬI SERVICE 1 LỆNH 14 (sub 0x1A): Đồng bộ tên đường phụ
-        var s14: [UInt8] = [0x07, 0x1A, UInt8(roadBytes.count & 0xff), 0x00]
-        s14.append(contentsOf: roadBytes)
-        writeEAData(NaviLite.frame(6, 1, 14, s14))
-        writeEAData(NaviLite.frame(6, 14, 1, s14))
+        // 3. GỬI SERVICE 2 (PDT 1): Giờ dự kiến đến / thời gian trong ngày (chuẩn APK Lm3/r;->l line 664)
+        let calendar = Calendar.current
+        let now = Date()
+        let currentMinuteOfDay = calendar.component(.hour, from: now) * 60 + calendar.component(.minute, from: now)
+        let etaMin = UInt16(min(1439, currentMinuteOfDay))
+        let arrivePayload: [UInt8] = [0x03, UInt8(etaMin & 0xff), UInt8((etaMin >> 8) & 0xff), 0x00]
+        writeEAData(NaviLite.frame(6, 2, 1, arrivePayload))
     }
     
     // MARK: - Tắt chế độ dẫn đường trên đồng hồ xe khi dừng hoặc tới đích (chuẩn APK Lo3/c;->b([0, 0], 2, 0))
@@ -633,7 +635,6 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         guard isMFiConnected && eaOutput != nil else { return }
         log("Đồng hồ xe: Tắt khung dẫn đường (Service 2 = [0, 0])")
         writeEAData(NaviLite.frame(6, 2, 0, [0, 0]))
-        writeEAData(NaviLite.frame(6, 1, 3, []))
         lastSentRoadName = ""
         DispatchQueue.main.async {
             self.currentRoadNameOnTFT = ""
@@ -920,6 +921,9 @@ extension YamahaCCUManager: CBPeripheralDelegate {
             }
         } else if characteristic.uuid == Self.telemetryCharUUID {
             parseTelemetry(data)
+        } else {
+            let hex = data.prefix(12).map { String(format: "%02X", $0) }.joined(separator: " ")
+            log("📡 BLE Notify [\(characteristic.uuid.uuidString.prefix(8))]: \(hex) (\(data.count)B)")
         }
     }
     
@@ -928,13 +932,46 @@ extension YamahaCCUManager: CBPeripheralDelegate {
         let bytes = [UInt8](data)
         guard bytes.count >= 4 else { return }
         
+        let hex = bytes.map { String(format: "%02X", $0) }.joined(separator: " ")
+        log("📡 Nhận gói tin Telemetry (\(bytes.count)B): \(hex)")
+        
         // Bỏ qua các mã gói tin điều khiển / handshake ban đầu của CCU (0x1502, 0x0102, 0x0101)
         let packetHeader = (Int(bytes[0]) << 8) | Int(bytes[1])
         if packetHeader == 0x1502 || packetHeader == 0x0102 || packetHeader == 0x0101 {
             return
         }
         
-        // Không gán byte mã lệnh 0x51 (81) làm tốc độ ảo
-        // Tốc độ thực tế được tính chuẩn xác bằng cảm biến GPS thời gian thực trên iPhone
+        // Tìm kiếm vòng tua máy (RPM) hợp lệ từ gói tin telemetry
+        var detectedRpm = 0
+        if bytes.count >= 4 {
+            let r1 = Int(bytes[2]) | (Int(bytes[3]) << 8)
+            let r2 = (Int(bytes[2]) << 8) | Int(bytes[3])
+            if r1 >= 800 && r1 <= 14000 { detectedRpm = r1 }
+            else if r2 >= 800 && r2 <= 14000 { detectedRpm = r2 }
+        }
+        if detectedRpm == 0 && bytes.count >= 6 {
+            let r3 = Int(bytes[4]) | (Int(bytes[5]) << 8)
+            let r4 = (Int(bytes[4]) << 8) | Int(bytes[5])
+            if r3 >= 800 && r3 <= 14000 { detectedRpm = r3 }
+            else if r4 >= 800 && r4 <= 14000 { detectedRpm = r4 }
+        }
+        if detectedRpm > 0 {
+            DispatchQueue.main.async {
+                self.telemetry.rpm = detectedRpm
+            }
+        }
+        
+        // Tìm kiếm mức % nhiên liệu (từ 1% - 100%)
+        if bytes.count >= 7 {
+            for i in 4..<min(bytes.count, 12) {
+                let val = Int(bytes[i])
+                if val >= 5 && val <= 100 && val != (detectedRpm & 0xFF) {
+                    DispatchQueue.main.async {
+                        self.telemetry.fuelPercent = val
+                    }
+                    break
+                }
+            }
+        }
     }
 }

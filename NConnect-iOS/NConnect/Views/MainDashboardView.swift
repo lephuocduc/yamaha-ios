@@ -162,44 +162,74 @@ public struct MainDashboardView: View {
     
     // MARK: - Thẻ thông số xe (HUD)
     private var telemetryCard: some View {
-        HStack(spacing: 16) {
-            // Tốc độ GPS thực tế thời gian thực
-            VStack {
-                let currentSpeed = navEngine.currentSpeedKmh >= 2.5 ? navEngine.currentSpeedKmh : 0.0
-                Text("\(Int(currentSpeed))")
-                    .font(.system(size: 38, weight: .heavy, design: .rounded))
-                    .foregroundColor(.white)
-                Text("KM/H (GPS)")
-                    .font(.caption.bold())
-                    .foregroundColor(.gray)
+        VStack(spacing: 8) {
+            HStack(spacing: 16) {
+                // Tốc độ GPS thực tế thời gian thực
+                VStack {
+                    let currentSpeed = navEngine.currentSpeedKmh >= 2.5 ? navEngine.currentSpeedKmh : 0.0
+                    Text("\(Int(currentSpeed))")
+                        .font(.system(size: 38, weight: .heavy, design: .rounded))
+                        .foregroundColor(.white)
+                    Text("KM/H (GPS)")
+                        .font(.caption.bold())
+                        .foregroundColor(.gray)
+                }
+                .frame(maxWidth: .infinity)
+                
+                Divider().background(Color.gray.opacity(0.3))
+                
+                // Vòng tua máy RPM
+                VStack {
+                    if ccuManager.telemetry.rpm >= 800 {
+                        Text("\(ccuManager.telemetry.rpm)")
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .foregroundColor(.cyan)
+                        Text("VÒNG/PHÚT")
+                            .font(.caption.bold())
+                            .foregroundColor(.gray)
+                    } else {
+                        Text(ccuManager.isMFiConnected || ccuManager.state == .connected ? "Theo xe" : "--")
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .foregroundColor(.cyan.opacity(0.85))
+                        Text("VÒNG TUA (LCD)")
+                            .font(.caption.bold())
+                            .foregroundColor(.gray)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                
+                Divider().background(Color.gray.opacity(0.3))
+                
+                // Xăng
+                VStack {
+                    if ccuManager.telemetry.fuelPercent > 0 && ccuManager.telemetry.fuelPercent < 100 {
+                        Text("\(ccuManager.telemetry.fuelPercent)%")
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .foregroundColor(.orange)
+                        Text("NHIÊN LIỆU")
+                            .font(.caption.bold())
+                            .foregroundColor(.gray)
+                    } else {
+                        Text(ccuManager.isMFiConnected || ccuManager.state == .connected ? "Theo xe" : "--")
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .foregroundColor(.orange.opacity(0.85))
+                        Text("MỨC XĂNG (LCD)")
+                            .font(.caption.bold())
+                            .foregroundColor(.gray)
+                    }
+                }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
             
-            Divider().background(Color.gray.opacity(0.3))
-            
-            // Vòng tua máy RPM
-            VStack {
-                Text(ccuManager.telemetry.rpm >= 800 ? "\(ccuManager.telemetry.rpm)" : "--")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundColor(.cyan)
-                Text("VÒNG/PHÚT")
-                    .font(.caption.bold())
-                    .foregroundColor(.gray)
+            if ccuManager.isMFiConnected || ccuManager.state == .connected {
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                    Text("Vòng tua máy và mức xăng hiển thị trực tiếp trên cụm đồng hồ LCD chính của xe.")
+                }
+                .font(.system(size: 11))
+                .foregroundColor(.gray.opacity(0.8))
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity)
-            
-            Divider().background(Color.gray.opacity(0.3))
-            
-            // Xăng
-            VStack {
-                Text(ccuManager.telemetry.fuelPercent > 0 ? "\(ccuManager.telemetry.fuelPercent)%" : "--%")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundColor(.orange)
-                Text("NHIÊN LIỆU")
-                    .font(.caption.bold())
-                    .foregroundColor(.gray)
-            }
-            .frame(maxWidth: .infinity)
         }
         .padding()
         .background(Color(white: 0.12))
