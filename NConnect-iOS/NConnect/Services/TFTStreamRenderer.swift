@@ -431,6 +431,8 @@ public final class TFTStreamRenderer: ObservableObject {
                         OSMTileEngine.shared.fetchTile(x: tx, y: ty, z: zoom) { _ in }
                     }
                 }
+            }
+            
             // Tăng độ tương phản cho nền bản đồ ngoài trời nắng gắt (Multiply contrast boost)
             ctx.saveGState()
             ctx.setBlendMode(.multiply)
