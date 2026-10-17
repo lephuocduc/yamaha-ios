@@ -34,6 +34,28 @@ public class RoutePointAnnotation: NSObject, MKAnnotation {
     }
 }
 
+// MARK: - Loại địa điểm đặc biệt đã lưu (Nhà, Công ty, Yêu thích)
+public enum SpecialPlaceType: String {
+    case home = "Nhà"
+    case work = "Công ty"
+    case favorite = "Yêu thích"
+}
+
+// MARK: - Annotation ghim các địa điểm đặc biệt trên bản đồ lớn
+public class SpecialPlaceAnnotation: NSObject, MKAnnotation {
+    public var coordinate: CLLocationCoordinate2D
+    public var placeType: SpecialPlaceType
+    public var title: String?
+    public var subtitle: String?
+    
+    public init(coordinate: CLLocationCoordinate2D, placeType: SpecialPlaceType, title: String, subtitle: String? = nil) {
+        self.coordinate = coordinate
+        self.placeType = placeType
+        self.title = title
+        self.subtitle = subtitle
+    }
+}
+
 // MARK: - Chế độ định hướng bản đồ (North-Up vs Heading Tracking)
 public enum MapOrientationMode: String, CaseIterable {
     case headingTracking = "Heading Tracking" // Theo hướng xe chạy (3D)
@@ -59,6 +81,7 @@ public struct LiveNavigationView: View {
     @State private var showTFTMiniPreview = true
     @ObservedObject private var callManager = CallNotificationManager.shared
     @ObservedObject private var notificationManager = AppNotificationManager.shared
+    @ObservedObject private var savedPlaces = SavedPlacesManager.shared
     
     // Quản lý Điểm A (Xuất phát) và Điểm B (Điểm đến)
     @State private var pointA: RoutePointItem? = nil // nil = Vị trí GPS hiện tại của người dùng
@@ -85,7 +108,7 @@ public struct LiveNavigationView: View {
     
     public var body: some View {
         ZStack {
-            // 1. Bản đồ OpenStreetMap tương tác vẽ lộ trình, ghim A/B và ghim điểm nhấn giữ
+            // 1. Bản đồ OpenStreetMap tương tác vẽ lộ trình, ghim A/B, ghim điểm nhấn giữ và các vị trí đặc biệt (Nhà, Công ty, Yêu thích)
             OSMMapView(
                 navEngine: navEngine,
                 trackingMode: $trackingMode,
@@ -96,6 +119,9 @@ public struct LiveNavigationView: View {
                 droppedPinCoord: droppedPinCoordinate,
                 onLocationLongPressed: { coord in
                     handleMapLongPress(coordinate: coord)
+                },
+                onSelectSpecialPlace: { place in
+                    handleSelectSpecialPlace(place)
                 }
             )
             .ignoresSafeArea(edges: .top)
@@ -1347,6 +1373,22 @@ public struct LiveNavigationView: View {
             triggerRouteCalculation()
         }
     }
+    
+    // MARK: - Dẫn đường đến địa điểm đặc biệt (Nhà, Công ty, Yêu thích) khi nhấn nút trên bản đồ
+    private func handleSelectSpecialPlace(_ place: SpecialPlaceAnnotation) {
+        let destTitle = place.title ?? "Điểm đến"
+        let subtitle = place.subtitle ?? ""
+        withAnimation {
+            pointB = RoutePointItem(
+                title: destTitle,
+                subtitle: subtitle,
+                coordinate: place.coordinate,
+                isCurrentLocation: false
+            )
+            dismissDroppedPin()
+            triggerRouteCalculation()
+        }
+    }
 }
 
 // MARK: - Lớp nạp ngói bản đồ OpenStreetMap tốc độ cao có bộ đệm và tự động phục hồi
@@ -1441,6 +1483,7 @@ public struct OSMMapView: UIViewRepresentable {
     var coordB: CLLocationCoordinate2D?
     var droppedPinCoord: CLLocationCoordinate2D?
     var onLocationLongPressed: ((CLLocationCoordinate2D) -> Void)?
+    var onSelectSpecialPlace: ((SpecialPlaceAnnotation) -> Void)?
     
     public init(
         navEngine: NavigationEngine,
@@ -1450,7 +1493,8 @@ public struct OSMMapView: UIViewRepresentable {
         coordA: CLLocationCoordinate2D? = nil,
         coordB: CLLocationCoordinate2D? = nil,
         droppedPinCoord: CLLocationCoordinate2D? = nil,
-        onLocationLongPressed: ((CLLocationCoordinate2D) -> Void)? = nil
+        onLocationLongPressed: ((CLLocationCoordinate2D) -> Void)? = nil,
+        onSelectSpecialPlace: ((SpecialPlaceAnnotation) -> Void)? = nil
     ) {
         self.navEngine = navEngine
         self._trackingMode = trackingMode
@@ -1460,6 +1504,7 @@ public struct OSMMapView: UIViewRepresentable {
         self.coordB = coordB
         self.droppedPinCoord = droppedPinCoord
         self.onLocationLongPressed = onLocationLongPressed
+        self.onSelectSpecialPlace = onSelectSpecialPlace
     }
     
     public func makeUIView(context: Context) -> MKMapView {
@@ -1520,6 +1565,7 @@ public struct OSMMapView: UIViewRepresentable {
         
         context.coordinator.updateRoute(on: uiView, newRoute: route, coordA: coordA, coordB: coordB)
         context.coordinator.updateDroppedPin(on: uiView, coord: droppedPinCoord)
+        context.coordinator.updateSpecialPlaces(on: uiView)
         
         let isNavigating = navEngine.isNavigating
         let isLandscape = uiView.traitCollection.verticalSizeClass == .compact
@@ -1608,6 +1654,8 @@ public struct OSMMapView: UIViewRepresentable {
         var currentTileOverlay: CustomOSMTileOverlay?
         var currentTileTemplate: String = ""
         private var lastRouteKey: String = ""
+        var specialPlaceAnnotations: [SpecialPlaceAnnotation] = []
+        private var lastSpecialPlacesKey: String = ""
         
         init(_ parent: OSMMapView) {
             self.parent = parent
@@ -1754,6 +1802,54 @@ public struct OSMMapView: UIViewRepresentable {
             if annotation is MKUserLocation {
                 return nil
             }
+            
+            // 1. Điểm đặc biệt đã lưu (Nhà, Công ty, Yêu thích)
+            if let special = annotation as? SpecialPlaceAnnotation {
+                let id = "SpecialMarker_\(special.placeType.rawValue)"
+                let view = (mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView)
+                    ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: id)
+                
+                view.annotation = special
+                view.canShowCallout = true
+                view.animatesWhenAdded = true
+                
+                let iconView = UIImageView(frame: CGRect(x: 0, y: 0, width: 26, height: 26))
+                iconView.contentMode = .scaleAspectFit
+                
+                switch special.placeType {
+                case .home:
+                    view.markerTintColor = UIColor.systemOrange
+                    view.glyphImage = UIImage(systemName: "house.fill")
+                    view.displayPriority = .required
+                    iconView.image = UIImage(systemName: "house.fill")
+                    iconView.tintColor = .systemOrange
+                case .work:
+                    view.markerTintColor = UIColor(red: 0.10, green: 0.50, blue: 1.0, alpha: 1.0)
+                    view.glyphImage = UIImage(systemName: "briefcase.fill")
+                    view.displayPriority = .required
+                    iconView.image = UIImage(systemName: "briefcase.fill")
+                    iconView.tintColor = UIColor(red: 0.10, green: 0.50, blue: 1.0, alpha: 1.0)
+                case .favorite:
+                    view.markerTintColor = UIColor(red: 1.0, green: 0.75, blue: 0.0, alpha: 1.0)
+                    view.glyphImage = UIImage(systemName: "star.fill")
+                    view.displayPriority = .defaultHigh
+                    iconView.image = UIImage(systemName: "star.fill")
+                    iconView.tintColor = UIColor(red: 1.0, green: 0.75, blue: 0.0, alpha: 1.0)
+                }
+                
+                view.leftCalloutAccessoryView = iconView
+                
+                let navButton = UIButton(type: .custom)
+                navButton.frame = CGRect(x: 0, y: 0, width: 34, height: 34)
+                let config = UIImage.SymbolConfiguration(pointSize: 22, weight: .semibold)
+                navButton.setImage(UIImage(systemName: "arrow.triangle.turn.up.right.circle.fill", withConfiguration: config), for: .normal)
+                navButton.tintColor = UIColor.systemGreen
+                view.rightCalloutAccessoryView = navButton
+                
+                return view
+            }
+            
+            // 2. Điểm A, Điểm B, Dropped Pin
             guard let ptAnn = annotation as? RoutePointAnnotation else { return nil }
             let id = ptAnn.isDroppedPin ? "DroppedPinMarker" : "RoutePointMarker"
             let view = (mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView)
@@ -1773,6 +1869,62 @@ public struct OSMMapView: UIViewRepresentable {
                 view.glyphText = "B"
             }
             return view
+        }
+        
+        // Bấm nút chỉ đường trên Callout của địa điểm đặc biệt để lập tức dẫn đường
+        public func mapView(_ mapView: MKMapView, annotationView view: MKAnnotationView, calloutAccessoryControlTapped control: UIControl) {
+            if let special = view.annotation as? SpecialPlaceAnnotation {
+                parent.onSelectSpecialPlace?(special)
+            }
+        }
+        
+        // MARK: - Cập nhật và hiển thị các địa điểm đặc biệt đã lưu (Nhà, Công ty, Yêu thích) lên bản đồ lớn
+        public func updateSpecialPlaces(on mapView: MKMapView) {
+            var placesToDisplay: [(coord: CLLocationCoordinate2D, type: SpecialPlaceType, title: String, subtitle: String)] = []
+            
+            // 1. Nhà (Home)
+            if let home = SavedPlacesManager.shared.homePlace {
+                placesToDisplay.append((home.coordinate, .home, home.name, home.address.isEmpty ? "Nhà riêng • Chạm nút chỉ đường" : "\(home.address) • Chạm nút chỉ đường"))
+            } else if let homeLoc = parent.navEngine.homeLocation {
+                placesToDisplay.append((homeLoc.coordinate, .home, homeLoc.title, homeLoc.subtitle.isEmpty ? "Nhà riêng • Chạm nút chỉ đường" : "\(homeLoc.subtitle) • Chạm nút chỉ đường"))
+            }
+            
+            // 2. Cơ quan / Nơi làm việc (Work)
+            if let work = SavedPlacesManager.shared.workPlace {
+                placesToDisplay.append((work.coordinate, .work, work.name, work.address.isEmpty ? "Nơi làm việc • Chạm nút chỉ đường" : "\(work.address) • Chạm nút chỉ đường"))
+            } else if let workLoc = parent.navEngine.workLocation {
+                placesToDisplay.append((workLoc.coordinate, .work, workLoc.title, workLoc.subtitle.isEmpty ? "Nơi làm việc • Chạm nút chỉ đường" : "\(workLoc.subtitle) • Chạm nút chỉ đường"))
+            }
+            
+            // 3. Mục yêu thích (Favorites)
+            var seenCoords: [CLLocationCoordinate2D] = []
+            for fav in SavedPlacesManager.shared.favoritePlaces {
+                let c = fav.coordinate
+                if !seenCoords.contains(where: { abs($0.latitude - c.latitude) < 0.0001 && abs($0.longitude - c.longitude) < 0.0001 }) {
+                    seenCoords.append(c)
+                    placesToDisplay.append((c, .favorite, fav.name, fav.address.isEmpty ? "Yêu thích • Chạm nút chỉ đường" : "\(fav.address) • Chạm nút chỉ đường"))
+                }
+            }
+            for fav in parent.navEngine.favoriteLocations {
+                let c = fav.coordinate
+                if !seenCoords.contains(where: { abs($0.latitude - c.latitude) < 0.0001 && abs($0.longitude - c.longitude) < 0.0001 }) {
+                    seenCoords.append(c)
+                    placesToDisplay.append((c, .favorite, fav.title, fav.subtitle.isEmpty ? "Yêu thích • Chạm nút chỉ đường" : "\(fav.subtitle) • Chạm nút chỉ đường"))
+                }
+            }
+            
+            let key = placesToDisplay.map { "\($0.type.rawValue)_\($0.coord.latitude)_\($0.coord.longitude)_\($0.title)" }.joined(separator: "|")
+            guard key != lastSpecialPlacesKey else { return }
+            lastSpecialPlacesKey = key
+            
+            mapView.removeAnnotations(specialPlaceAnnotations)
+            specialPlaceAnnotations.removeAll()
+            
+            for p in placesToDisplay {
+                let ann = SpecialPlaceAnnotation(coordinate: p.coord, placeType: p.type, title: p.title, subtitle: p.subtitle)
+                specialPlaceAnnotations.append(ann)
+                mapView.addAnnotation(ann)
+            }
         }
         
         public func updateRoute(

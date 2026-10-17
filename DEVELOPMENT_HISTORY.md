@@ -235,6 +235,25 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
 
 ---
 
+### 🔴 TÍNH NĂNG 12: Hiển thị các vị trí đặc biệt (Nhà, Công ty, Yêu thích) trực quan trên bản đồ lớn
+* **Yêu cầu người dùng**:
+  - Trên màn hình bản đồ lớn (tab Bản đồ - LiveNavigationView) cần hiển thị trực quan các vị trí đặc biệt đã lưu gồm: **Nhà riêng (Home)**, **Cơ quan / Nơi làm việc (Work)** và các **Mục yêu thích (Favorites)**.
+* **Kiến trúc giải pháp chuẩn xác**:
+  1. **Đồng bộ dữ liệu hai chiều (Two-Way Sync)**:
+     - Giữa `NavigationEngine` (`homeLocation`, `workLocation`, `favoriteLocations`) và `SavedPlacesManager.shared` (`homePlace`, `workPlace`, `favoritePlaces`).
+     - Bất kể người dùng lưu địa điểm ở đâu (Cài đặt, Trang chủ, Bản đồ lớn hay nút trên cùm xe), dữ liệu luôn đồng nhất và được lưu trữ bền vững vào `UserDefaults`.
+  2. **Ghim vị trí tuỳ biến trên MKMapView (`SpecialPlaceAnnotation`)**:
+     - **Nhà (Home)**: Marker màu Cam tươi (`UIColor.systemOrange`), icon `house.fill`, ưu tiên hiển thị cao nhất.
+     - **Công ty (Work)**: Marker màu Xanh dương công nghệ (`#1A80FF`), icon `briefcase.fill`, ưu tiên hiển thị cao nhất.
+     - **Mục yêu thích (Favorites)**: Marker màu Vàng kim rực rỡ (`UIColor.systemYellow`), icon `star.fill`.
+  3. **Callout thông minh & Nút chỉ đường tức thì**:
+     - Khi người dùng chạm vào bất kỳ ghim địa điểm nào: Callout nổi lên hiển thị icon đại diện bên trái, tên địa điểm và địa chỉ chi tiết ở giữa, kèm nút chỉ đường xanh lá (`arrow.triangle.turn.up.right.circle.fill`) bên phải.
+     - Bấm nút chỉ đường: Lập tức gọi `navEngine.calculateRoute(to: dest, destinationTitle: title)` để vẽ lộ trình, tính thời gian, gợi ý các tuyến thay thế và tự động stream lên màn hình xe.
+  4. **Cơ chế chống giật lag (Key Caching)**:
+     - Tính toán hash key từ danh sách tọa độ và tên địa điểm. Chỉ cập nhật lại annotation khi thực sự có thêm/xóa/sửa địa điểm, tránh việc xoá và nạp lại marker liên tục theo từng nhịp cập nhật GPS của xe (60fps mượt mà).
+
+---
+
 ## 4. QUY TRÌNH BIÊN DỊCH VÀ PHÁT HÀNH (CI/CD)
 - Dự án sử dụng GitHub Actions workflow (`.github/workflows/build-ios.yml`).
 - Mỗi khi có commit mới được push lên nhánh `main`, hệ thống tự động:

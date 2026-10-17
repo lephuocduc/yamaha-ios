@@ -6,6 +6,7 @@ import AVFoundation
 
 // MARK: - Bộ xử lý định vị và dẫn đường NConnect sử dụng OpenStreetMap (OSM) & Valhalla Routing Engine
 public final class NavigationEngine: NSObject, ObservableObject {
+    public static var shared: NavigationEngine?
     
     @Published public var currentLocation: CLLocation?
     @Published public var currentSpeedKmh: Double = 0.0
@@ -59,6 +60,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
         self.networkSession = URLSession(configuration: config)
         
         super.init()
+        Self.shared = self
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         locationManager.distanceFilter = kCLDistanceFilterNone
@@ -88,11 +90,17 @@ public final class NavigationEngine: NSObject, ObservableObject {
         if let data = UserDefaults.standard.data(forKey: "nconnect_home_location"),
            let loc = try? decoder.decode(SavedLocation.self, from: data) {
             self.homeLocation = loc
+        } else if let home = SavedPlacesManager.shared.homePlace {
+            self.homeLocation = SavedLocation(title: home.name, subtitle: home.address, latitude: home.latitude, longitude: home.longitude, type: .home)
         }
+        
         if let data = UserDefaults.standard.data(forKey: "nconnect_work_location"),
            let loc = try? decoder.decode(SavedLocation.self, from: data) {
             self.workLocation = loc
+        } else if let work = SavedPlacesManager.shared.workPlace {
+            self.workLocation = SavedLocation(title: work.name, subtitle: work.address, latitude: work.latitude, longitude: work.longitude, type: .work)
         }
+        
         if let data = UserDefaults.standard.data(forKey: "nconnect_favorite_locations"),
            let list = try? decoder.decode([SavedLocation].self, from: data) {
             self.favoriteLocations = list
@@ -106,6 +114,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
         if let data = try? JSONEncoder().encode(h) {
             UserDefaults.standard.set(data, forKey: "nconnect_home_location")
         }
+        SavedPlacesManager.shared.setHome(name: loc.title, address: loc.subtitle, coordinate: loc.coordinate)
     }
     
     public func setWorkLocation(_ loc: SavedLocation) {
@@ -115,6 +124,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
         if let data = try? JSONEncoder().encode(w) {
             UserDefaults.standard.set(data, forKey: "nconnect_work_location")
         }
+        SavedPlacesManager.shared.setWork(name: loc.title, address: loc.subtitle, coordinate: loc.coordinate)
     }
     
     public func addFavoriteLocation(_ loc: SavedLocation) {
@@ -123,6 +133,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
         if !favoriteLocations.contains(where: { $0.id == f.id || ($0.latitude == f.latitude && $0.longitude == f.longitude) }) {
             favoriteLocations.append(f)
             saveFavorites()
+            SavedPlacesManager.shared.addFavorite(name: loc.title, address: loc.subtitle, coordinate: loc.coordinate)
         }
     }
     
