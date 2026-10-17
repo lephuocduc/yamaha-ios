@@ -41,6 +41,11 @@ public enum MapOrientationMode: String, CaseIterable {
 }
 
 public struct LiveNavigationView: View {
+    @Environment(\.verticalSizeClass) var verticalSizeClass
+    private var isLandscape: Bool {
+        verticalSizeClass == .compact
+    }
+    
     @ObservedObject var navEngine: NavigationEngine
     @ObservedObject var ccuManager: YamahaCCUManager
     @ObservedObject var streamRenderer: TFTStreamRenderer
@@ -97,11 +102,11 @@ public struct LiveNavigationView: View {
                 // 2. Phía trên: HUD dẫn đường Turn-by-Turn HOẶC Hộp chọn lộ trình Điểm A & Điểm B (Google Maps style)
                 if navEngine.isNavigating {
                     navigationHUD
-                        .padding(.top, 10)
+                        .padding(.top, isLandscape ? 4 : 10)
                         .padding(.horizontal)
                 } else {
                     routePlannerHeader
-                        .padding(.top, 10)
+                        .padding(.top, isLandscape ? 4 : 10)
                         .padding(.horizontal)
                 }
                 
@@ -167,7 +172,102 @@ public struct LiveNavigationView: View {
     }
     
     // MARK: - Hộp nhập lộ trình Điểm A & Điểm B kiểu Google Maps
+    // MARK: - Hộp nhập lộ trình Điểm A & Điểm B kiểu Google Maps (Tự động thích ứng Dọc / Ngang)
     private var routePlannerHeader: some View {
+        Group {
+            if isLandscape {
+                landscapeRoutePlannerHeader
+            } else {
+                portraitRoutePlannerHeader
+            }
+        }
+    }
+    
+    // Giao diện hộp chọn lộ trình khi cầm ngang (Landscape) - Tinh gọn theo hàng ngang
+    private var landscapeRoutePlannerHeader: some View {
+        HStack(spacing: 8) {
+            // Ô Điểm A (Xuất phát)
+            Button(action: {
+                searchTarget = .pointA
+                searchQuery = ""
+                showSearchSheet = true
+            }) {
+                HStack(spacing: 6) {
+                    Circle().fill(Color.green).frame(width: 8, height: 8)
+                    Text(pointA?.title ?? "Vị trí của bạn")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(pointA == nil ? .cyan : .white)
+                        .lineLimit(1)
+                    Spacer()
+                    if pointA != nil {
+                        Button(action: {
+                            pointA = nil
+                            triggerRouteCalculation()
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.gray)
+                                .font(.system(size: 12))
+                        }
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Color(white: 0.16))
+                .cornerRadius(8)
+            }
+            .frame(maxWidth: .infinity)
+            
+            // Nút Đảo Chiều lộ trình (Swap)
+            Button(action: {
+                swapPoints()
+            }) {
+                Image(systemName: "arrow.left.arrow.right.circle.fill")
+                    .font(.system(size: 24))
+                    .foregroundColor(.cyan)
+            }
+            
+            // Ô Điểm B (Điểm đến)
+            Button(action: {
+                searchTarget = .pointB
+                searchQuery = ""
+                showSearchSheet = true
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "mappin.circle.fill")
+                        .foregroundColor(.red)
+                        .font(.system(size: 12))
+                    Text(pointB?.title ?? "Nhập điểm đến (Điểm B)...")
+                        .font(.system(size: 13, weight: pointB == nil ? .regular : .semibold))
+                        .foregroundColor(pointB == nil ? .gray : .white)
+                        .lineLimit(1)
+                    Spacer()
+                    if pointB != nil {
+                        Button(action: {
+                            clearRoute()
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.gray)
+                                .font(.system(size: 12))
+                        }
+                    } else if navEngine.isCalculatingRoute {
+                        ProgressView().scaleEffect(0.6)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Color(white: 0.16))
+                .cornerRadius(8)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(8)
+        .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.96))
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.4), radius: 6, y: 2)
+    }
+    
+    // Giao diện hộp chọn lộ trình khi cầm dọc (Portrait)
+    private var portraitRoutePlannerHeader: some View {
         VStack(spacing: 8) {
             HStack(spacing: 12) {
                 // Biểu tượng chuỗi hành trình Điểm A -> Điểm B
@@ -988,7 +1088,7 @@ public struct OSMMapView: UIViewRepresentable {
         let mapView = MKMapView()
         mapView.delegate = context.coordinator
         mapView.showsUserLocation = true
-        mapView.showsCompass = true
+        mapView.showsCompass = false // Tắt la bàn mặc định ở góc trên (bị hộp tìm kiếm che)
         mapView.showsScale = true
         
         // Thêm nhận diện cử chỉ nhấn giữ bản đồ để chọn địa điểm (Long Press to Drop Pin)
@@ -999,6 +1099,19 @@ public struct OSMMapView: UIViewRepresentable {
         // Cấu hình ngói bản đồ OpenStreetMap ở level .aboveRoads
         let osmOverlay = CustomOSMTileOverlay()
         mapView.addOverlay(osmOverlay, level: .aboveRoads)
+        
+        // Thêm nút La bàn MKCompassButton riêng biệt, định vị nằm ngay DƯỚI thanh tìm kiếm / HUD
+        let compass = MKCompassButton(mapView: mapView)
+        compass.compassVisibility = .visible // Luôn hiển thị kim la bàn chỉ Bắc cho người lái xe
+        compass.translatesAutoresizingMaskIntoConstraints = false
+        mapView.addSubview(compass)
+        context.coordinator.compassButton = compass
+        
+        let topConstraint = compass.topAnchor.constraint(equalTo: mapView.safeAreaLayoutGuide.topAnchor, constant: 145)
+        let trailingConstraint = compass.trailingAnchor.constraint(equalTo: mapView.safeAreaLayoutGuide.trailingAnchor, constant: -16)
+        NSLayoutConstraint.activate([topConstraint, trailingConstraint])
+        context.coordinator.compassTopConstraint = topConstraint
+        context.coordinator.compassTrailingConstraint = trailingConstraint
         
         if let loc = navEngine.currentLocation {
             let region = MKCoordinateRegion(center: loc.coordinate, latitudinalMeters: 800, longitudinalMeters: 800)
@@ -1011,6 +1124,18 @@ public struct OSMMapView: UIViewRepresentable {
     public func updateUIView(_ uiView: MKMapView, context: Context) {
         context.coordinator.updateRoute(on: uiView, newRoute: route, coordA: coordA, coordB: coordB)
         context.coordinator.updateDroppedPin(on: uiView, coord: droppedPinCoord)
+        
+        let isNavigating = navEngine.isNavigating
+        let isLandscape = uiView.traitCollection.verticalSizeClass == .compact
+        
+        // Tự động điều chỉnh khoảng cách trên của La bàn để không bao giờ bị thanh nhập địa điểm che
+        let targetTopOffset: CGFloat = isLandscape ? (isNavigating ? 60 : 68) : (isNavigating ? 85 : 145)
+        if context.coordinator.compassTopConstraint?.constant != targetTopOffset {
+            context.coordinator.compassTopConstraint?.constant = targetTopOffset
+            UIView.animate(withDuration: 0.25) {
+                uiView.layoutIfNeeded()
+            }
+        }
         
         if trackingMode == .follow, let loc = navEngine.currentLocation {
             let speedKmh = max(0.0, loc.speed * 3.6)
@@ -1080,6 +1205,9 @@ public struct OSMMapView: UIViewRepresentable {
         var currentPolyline: MKPolyline?
         var routeAnnotations: [MKAnnotation] = []
         var droppedPinAnnotation: RoutePointAnnotation?
+        var compassButton: MKCompassButton?
+        var compassTopConstraint: NSLayoutConstraint?
+        var compassTrailingConstraint: NSLayoutConstraint?
         private var lastRouteKey: String = ""
         
         init(_ parent: OSMMapView) {
