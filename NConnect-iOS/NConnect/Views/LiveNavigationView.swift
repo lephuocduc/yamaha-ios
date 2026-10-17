@@ -921,8 +921,8 @@ public class CustomOSMTileOverlay: MKTileOverlay {
                 OSMTileEngine.shared.saveTileData(data, x: path.x, y: path.y, z: path.z)
                 result(data, nil)
             } else {
-                // Fallback: Thử máy chủ OpenStreetMap DE
-                let fbUrlStr = "https://tile.openstreetmap.de/\(path.z)/\(path.x)/\(path.y).png"
+                // Fallback: Thử máy chủ CyclOSM OpenStreetMap
+                let fbUrlStr = "https://a.tile-cyclosm.openstreetmap.fr/cyclosm/\(path.z)/\(path.x)/\(path.y).png"
                 if let fbUrl = URL(string: fbUrlStr) {
                     var req = URLRequest(url: fbUrl)
                     req.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")

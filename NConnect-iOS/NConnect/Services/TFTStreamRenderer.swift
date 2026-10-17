@@ -13,17 +13,24 @@ public final class OSMTileEngine {
     private let cacheDirectory: URL
     private let session: URLSession
     
-    // Sử dụng ngói bản đồ OpenStreetMap tốc độ cao có CDN toàn cầu (Cloudflare Edge, phản hồi ~200ms)
-    public var tileUrlTemplate: String = "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+    // Mặc định dùng ngói OpenStreetMap chuẩn FOSSGIS (100% dữ liệu OSM, không có hình mờ Watermark, không cần API key)
+    public var tileUrlTemplate: String = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
     
     public init() {
         memoryCache.countLimit = 400 // Lưu tối đa 400 ngói trong bộ nhớ RAM
         let paths = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)
-        cacheDirectory = paths[0].appendingPathComponent("OSMTiles_v2")
+        
+        // Tự động xóa sạch bộ đệm OSMTiles_v2 cũ để loại bỏ hoàn toàn các ngói dính hình mờ "API KEY REQUIRED" của CartoDB
+        let oldV2 = paths[0].appendingPathComponent("OSMTiles_v2")
+        try? fileManager.removeItem(at: oldV2)
+        let oldV1 = paths[0].appendingPathComponent("OSMTiles")
+        try? fileManager.removeItem(at: oldV1)
+        
+        cacheDirectory = paths[0].appendingPathComponent("OSMTiles_v3")
         try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 4
+        config.timeoutIntervalForRequest = 5
         config.requestCachePolicy = .returnCacheDataElseLoad
         self.session = URLSession(configuration: config)
     }
@@ -86,8 +93,8 @@ public final class OSMTileEngine {
                 try? data.write(to: fileURL)
                 completion(img)
             } else {
-                // Fallback: Thử máy chủ OpenStreetMap DE
-                let fbUrlStr = "https://tile.openstreetmap.de/\(z)/\(x)/\(y).png"
+                // Fallback: Thử máy chủ CyclOSM OpenStreetMap
+                let fbUrlStr = "https://a.tile-cyclosm.openstreetmap.fr/cyclosm/\(z)/\(x)/\(y).png"
                 if let fbUrl = URL(string: fbUrlStr) {
                     var req2 = URLRequest(url: fbUrl)
                     req2.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
