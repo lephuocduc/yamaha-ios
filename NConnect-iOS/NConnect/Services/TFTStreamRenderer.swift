@@ -13,17 +13,17 @@ public final class OSMTileEngine {
     private let cacheDirectory: URL
     private let session: URLSession
     
-    // Mẫu URL ngói OpenStreetMap (Mặc định ngói chuẩn OSM)
-    public var tileUrlTemplate: String = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+    // Mặc định dùng ngói CartoDB Dark Matter (100% dữ liệu OpenStreetMap, Singapore CDN siêu nhanh, tối ưu tương phản cho màn hình xe)
+    public var tileUrlTemplate: String = "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
     
     public init() {
-        memoryCache.countLimit = 250 // Lưu tối đa 250 ngói trong bộ nhớ RAM
+        memoryCache.countLimit = 300 // Lưu tối đa 300 ngói trong bộ nhớ RAM
         let paths = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)
         cacheDirectory = paths[0].appendingPathComponent("OSMTiles")
         try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 8
+        config.timeoutIntervalForRequest = 6
         config.requestCachePolicy = .returnCacheDataElseLoad
         self.session = URLSession(configuration: config)
     }
@@ -58,10 +58,11 @@ public final class OSMTileEngine {
         }
         
         var request = URLRequest(url: url)
-        request.setValue("NConnect-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
+        request.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 6
         
         session.dataTask(with: request) { [weak self] data, response, error in
-            guard let self = self, let data = data, let img = UIImage(data: data) else {
+            guard let self = self, let data = data, (response as? HTTPURLResponse)?.statusCode == 200, let img = UIImage(data: data) else {
                 completion(nil)
                 return
             }
@@ -74,7 +75,7 @@ public final class OSMTileEngine {
     }
 }
 
-// MARK: - Renderer tạo khung hình Bản Đồ OpenStreetMap cho màn hình TFT xe máy Yamaha
+// MARK: - Renderer tạo khung hình Bản Đồ OpenStreetMap cho màn hình TFT xe máy Yamaha (Tối ưu hóa chạy ngầm, không nghẽn UI)
 public final class TFTStreamRenderer: ObservableObject {
     
     // Kích thước chuẩn cho khung hình dẫn đường xe máy Yamaha (NMAX / XMAX: 480 x 234 px; MT-07/09: 480 x 240 px)
@@ -101,6 +102,10 @@ public final class TFTStreamRenderer: ObservableObject {
         default: return "Zoom Xa (3km)"
         }
     }
+    
+    // Quản lý luồng render nền (Background Render Queue) để không bao giờ gây lag giao diện iPhone
+    private let renderQueue = DispatchQueue(label: "com.mynmax.tftrender", qos: .userInitiated)
+    private var isRenderingFrame: Bool = false
     
     // Quản lý tác vụ chạy ngầm khi màn hình tắt (Background Task Token)
     private var bgTaskID: UIBackgroundTaskIdentifier = .invalid
@@ -205,7 +210,7 @@ public final class TFTStreamRenderer: ObservableObject {
         ) { _ in }
     }
     
-    // MARK: - Render khung hình bản đồ OpenStreetMap theo thời gian thực cho màn hình TFT
+    // MARK: - Render khung hình bản đồ OpenStreetMap chạy 100% trên luồng nền (Không bao giờ giật lag)
     public func renderLiveMapFrame(
         location: CLLocation?,
         activeRoute: OSMRoute?,
@@ -220,111 +225,119 @@ public final class TFTStreamRenderer: ObservableObject {
         self.lastRenderedSpeedKmh = speedKmh
         self.lastRenderedTelemetry = telemetry
         
-        guard let loc = location else {
-            let placeholderData = renderFallbackMapFrame(
-                title: "OpenStreetMap",
-                subtitle: "Đang lấy tín hiệu GPS từ iPhone...",
-                speedKmh: speedKmh,
-                telemetry: telemetry
-            )
-            completion(placeholderData)
-            return
-        }
-        
-        let zoom = self.currentOsmZoom
-        let n = pow(2.0, Double(zoom))
-        let lon = loc.coordinate.longitude
-        let lat = loc.coordinate.latitude
-        
-        let worldX = (lon + 180.0) / 360.0 * n * 256.0
-        let latRad = lat * .pi / 180.0
-        let worldY = (1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / .pi) / 2.0 * n * 256.0
-        
-        let centerTileX = Int(floor(worldX / 256.0))
-        let centerTileY = Int(floor(worldY / 256.0))
-        
-        let originWorldX = Double((centerTileX - 1) * 256)
-        let originWorldY = Double((centerTileY - 1) * 256)
-        
-        let bikeCanvasX = CGFloat(worldX - originWorldX)
-        let bikeCanvasY = CGFloat(worldY - originWorldY)
-        
-        // Kích thước màn hình TFT đích
-        let size = CGSize(width: targetWidth, height: targetHeight)
-        
-        // Vẽ toàn bộ khung hình trực tiếp bằng CoreGraphics
-        UIGraphicsBeginImageContextWithOptions(size, true, 1.0)
-        guard let ctx = UIGraphicsGetCurrentContext() else {
-            UIGraphicsEndImageContext()
+        // Ngăn chặn render chồng chéo gây tràn CPU
+        guard !isRenderingFrame else {
             completion(nil)
             return
         }
+        isRenderingFrame = true
         
-        // 1. Nền tối chống chói ban đêm cho màn hình xe
-        ctx.setFillColor(UIColor(red: 0.08, green: 0.10, blue: 0.14, alpha: 1.0).cgColor)
-        ctx.fill(CGRect(origin: .zero, size: size))
-        
-        let heading = loc.course >= 0 ? loc.course : 0.0
-        let headingRad = CGFloat(heading * .pi / 180.0)
-        let centerPt = CGPoint(x: CGFloat(targetWidth) / 2.0, y: CGFloat(targetHeight) / 2.0)
-        
-        ctx.saveGState()
-        // Xoay hướng di chuyển của xe luôn hướng lên trên màn hình TFT (Heading-up)
-        ctx.translateBy(x: centerPt.x, y: centerPt.y)
-        ctx.rotate(by: -headingRad)
-        ctx.translateBy(x: -bikeCanvasX, y: -bikeCanvasY)
-        
-        // 2. Vẽ 9 ngói OpenStreetMap (3x3 grid) xung quanh vị trí xe
-        for dx in -1...1 {
-            for dy in -1...1 {
-                let tx = centerTileX + dx
-                let ty = centerTileY + dy
-                let destRect = CGRect(x: CGFloat(dx + 1) * 256.0, y: CGFloat(dy + 1) * 256.0, width: 256.0, height: 256.0)
-                
-                if let tile = OSMTileEngine.shared.getCachedTile(x: tx, y: ty, z: zoom) {
-                    tile.draw(in: destRect)
-                } else {
-                    // Nếu chưa có trong cache, vẽ placeholder và kích hoạt tải ngầm
-                    ctx.setFillColor(UIColor(red: 0.12, green: 0.14, blue: 0.18, alpha: 1.0).cgColor)
-                    ctx.fill(destRect)
-                    ctx.setStrokeColor(UIColor(white: 0.25, alpha: 0.4).cgColor)
-                    ctx.stroke(destRect)
+        renderQueue.async { [weak self] in
+            guard let self = self else { return }
+            defer { self.isRenderingFrame = false }
+            
+            guard let loc = location else {
+                let placeholderData = self.renderFallbackMapFrame(
+                    title: "OpenStreetMap",
+                    subtitle: "Đang lấy tín hiệu GPS từ iPhone...",
+                    speedKmh: speedKmh,
+                    telemetry: telemetry
+                )
+                completion(placeholderData)
+                return
+            }
+            
+            let zoom = self.currentOsmZoom
+            let n = pow(2.0, Double(zoom))
+            let lon = loc.coordinate.longitude
+            let lat = loc.coordinate.latitude
+            
+            let worldX = (lon + 180.0) / 360.0 * n * 256.0
+            let latRad = lat * .pi / 180.0
+            let worldY = (1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / .pi) / 2.0 * n * 256.0
+            
+            let centerTileX = Int(floor(worldX / 256.0))
+            let centerTileY = Int(floor(worldY / 256.0))
+            
+            let originWorldX = Double((centerTileX - 1) * 256)
+            let originWorldY = Double((centerTileY - 1) * 256)
+            
+            let bikeCanvasX = CGFloat(worldX - originWorldX)
+            let bikeCanvasY = CGFloat(worldY - originWorldY)
+            
+            // Kích thước màn hình TFT đích
+            let size = CGSize(width: self.targetWidth, height: self.targetHeight)
+            
+            UIGraphicsBeginImageContextWithOptions(size, true, 1.0)
+            guard let ctx = UIGraphicsGetCurrentContext() else {
+                UIGraphicsEndImageContext()
+                completion(nil)
+                return
+            }
+            
+            // 1. Nền tối chống chói ban đêm cho màn hình xe
+            ctx.setFillColor(UIColor(red: 0.08, green: 0.10, blue: 0.14, alpha: 1.0).cgColor)
+            ctx.fill(CGRect(origin: .zero, size: size))
+            
+            let heading = loc.course >= 0 ? loc.course : 0.0
+            let headingRad = CGFloat(heading * .pi / 180.0)
+            let centerPt = CGPoint(x: CGFloat(self.targetWidth) / 2.0, y: CGFloat(self.targetHeight) / 2.0)
+            
+            ctx.saveGState()
+            // Xoay hướng di chuyển của xe luôn hướng lên trên màn hình TFT (Heading-up)
+            ctx.translateBy(x: centerPt.x, y: centerPt.y)
+            ctx.rotate(by: -headingRad)
+            ctx.translateBy(x: -bikeCanvasX, y: -bikeCanvasY)
+            
+            // 2. Vẽ 9 ngói OpenStreetMap (3x3 grid) xung quanh vị trí xe
+            for dx in -1...1 {
+                for dy in -1...1 {
+                    let tx = centerTileX + dx
+                    let ty = centerTileY + dy
+                    let destRect = CGRect(x: CGFloat(dx + 1) * 256.0, y: CGFloat(dy + 1) * 256.0, width: 256.0, height: 256.0)
                     
-                    OSMTileEngine.shared.fetchTile(x: tx, y: ty, z: zoom) { [weak self] _ in
-                        DispatchQueue.main.async {
-                            self?.triggerImmediateReRender()
-                        }
+                    if let tile = OSMTileEngine.shared.getCachedTile(x: tx, y: ty, z: zoom) {
+                        tile.draw(in: destRect)
+                    } else {
+                        // Vẽ lưới giả lập trong khi ngói đang được tải
+                        ctx.setFillColor(UIColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 1.0).cgColor)
+                        ctx.fill(destRect)
+                        ctx.setStrokeColor(UIColor(white: 0.20, alpha: 0.3).cgColor)
+                        ctx.stroke(destRect)
+                        
+                        // Kích hoạt nạp ngầm thuần túy (không gọi re-render tức thì để triệt tiêu lag CPU)
+                        OSMTileEngine.shared.fetchTile(x: tx, y: ty, z: zoom) { _ in }
                     }
                 }
             }
+            
+            // 3. Vẽ lộ trình OpenStreetMap (OSRM Polyline) trong cùng hệ tọa độ ngói OSM
+            if let route = activeRoute, route.coordinates.count > 1 {
+                self.drawOSRMRoutePolyline(route, in: ctx, zoom: zoom, originX: originWorldX, originY: originWorldY)
+            }
+            
+            ctx.restoreGState()
+            
+            // 4. Vẽ biểu tượng xe máy trung tâm màn hình (Mũi tên xanh Cyan luôn tiến về phía trước)
+            self.drawMotorcycleMarker(in: ctx, center: centerPt)
+            
+            // 5. Thanh chỉ dẫn điều hướng Turn-by-Turn phía trên (khoảng cách + tên đường)
+            self.drawTopNavigationBanner(in: ctx, size: size, instruction: instruction)
+            
+            // 6. Nhãn bản quyền bắt buộc của OpenStreetMap (nhỏ gọn, thanh lịch)
+            self.drawOSMAttribution(in: ctx, size: size)
+            
+            let finalImage = UIGraphicsGetImageFromCurrentImageContext()
+            UIGraphicsEndImageContext()
+            
+            DispatchQueue.main.async {
+                self.lastFrameImage = finalImage
+            }
+            
+            // Nén JPEG chất lượng cao cho giao thức Bluetooth Yamaha StreetCross
+            let jpegData = finalImage?.jpegData(compressionQuality: 0.85)
+            completion(jpegData)
         }
-        
-        // 3. Vẽ lộ trình OpenStreetMap (OSRM Polyline) trong cùng hệ tọa độ ngói OSM
-        if let route = activeRoute, route.coordinates.count > 1 {
-            drawOSRMRoutePolyline(route, in: ctx, zoom: zoom, originX: originWorldX, originY: originWorldY)
-        }
-        
-        ctx.restoreGState()
-        
-        // 4. Vẽ biểu tượng xe máy trung tâm màn hình (Mũi tên xanh Cyan luôn tiến về phía trước)
-        drawMotorcycleMarker(in: ctx, center: centerPt)
-        
-        // 5. Thanh chỉ dẫn điều hướng Turn-by-Turn phía trên (khoảng cách + tên đường)
-        drawTopNavigationBanner(in: ctx, size: size, instruction: instruction)
-        
-        // 6. Nhãn bản quyền bắt buộc của OpenStreetMap (nhỏ gọn, thanh lịch)
-        drawOSMAttribution(in: ctx, size: size)
-        
-        let finalImage = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-        
-        DispatchQueue.main.async {
-            self.lastFrameImage = finalImage
-        }
-        
-        // Nén JPEG chất lượng cao cho giao thức Bluetooth Yamaha StreetCross
-        let jpegData = finalImage?.jpegData(compressionQuality: 0.85)
-        completion(jpegData)
     }
     
     // MARK: - Vẽ tuyến đường OSRM trên mặt phẳng ngói OpenStreetMap
@@ -501,4 +514,5 @@ public final class TFTStreamRenderer: ObservableObject {
         return img?.jpegData(compressionQuality: 0.85)
     }
 }
+
 

@@ -258,6 +258,63 @@ public struct LiveNavigationView: View {
     }
 }
 
+// MARK: - Lớp nạp ngói bản đồ OpenStreetMap tốc độ cao có bộ đệm và tự động phục hồi
+public class CustomOSMTileOverlay: MKTileOverlay {
+    private let session: URLSession
+    private let memoryCache = NSCache<NSString, NSData>()
+    
+    public init() {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 6
+        config.requestCachePolicy = .returnCacheDataElseLoad
+        self.session = URLSession(configuration: config)
+        
+        // Mặc định dùng ngói CartoDB Voyager (100% dữ liệu OpenStreetMap, Singapore CDN siêu nhanh)
+        super.init(urlTemplate: "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png")
+        self.canReplaceMapContent = true
+        self.maximumZ = 19
+        self.tileSize = CGSize(width: 256, height: 256)
+        memoryCache.countLimit = 350
+    }
+    
+    public override func loadTile(at path: MKTileOverlayPath, result: @escaping (Data?, Error?) -> Void) {
+        let key = "\(path.z)_\(path.x)_\(path.y)" as NSString
+        if let cached = memoryCache.object(forKey: key) {
+            result(cached as Data, nil)
+            return
+        }
+        
+        let url = self.url(forTilePath: path)
+        var request = URLRequest(url: url)
+        request.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 6
+        
+        session.dataTask(with: request) { [weak self] data, response, error in
+            if let data = data, (response as? HTTPURLResponse)?.statusCode == 200 {
+                self?.memoryCache.setObject(data as NSData, forKey: key)
+                result(data, nil)
+            } else {
+                // Fallback thử OpenStreetMap server nếu CartoDB gặp sự cố
+                let fallbackUrlStr = "https://tile.openstreetmap.org/\(path.z)/\(path.x)/\(path.y).png"
+                if let fallbackUrl = URL(string: fallbackUrlStr) {
+                    var req2 = URLRequest(url: fallbackUrl)
+                    req2.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
+                    self?.session.dataTask(with: req2) { d2, r2, e2 in
+                        if let d2 = d2, (r2 as? HTTPURLResponse)?.statusCode == 200 {
+                            self?.memoryCache.setObject(d2 as NSData, forKey: key)
+                            result(d2, nil)
+                        } else {
+                            result(nil, error)
+                        }
+                    }.resume()
+                } else {
+                    result(nil, error)
+                }
+            }
+        }.resume()
+    }
+}
+
 // MARK: - View Bản đồ OpenStreetMap tương tác (Thay thế hoàn toàn Apple Maps bằng OpenStreetMap)
 public struct OSMMapView: UIViewRepresentable {
     @ObservedObject var navEngine: NavigationEngine
@@ -275,17 +332,14 @@ public struct OSMMapView: UIViewRepresentable {
         mapView.delegate = context.coordinator
         mapView.showsUserLocation = true
         mapView.showsCompass = true
-        mapView.showsScale = true
+        mapView.showsScale = false
         
-        // Cấu hình ngói bản đồ OpenStreetMap thay thế hoàn toàn bản đồ mặc định của Apple
-        let osmUrl = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-        let osmOverlay = MKTileOverlay(urlTemplate: osmUrl)
-        osmOverlay.canReplaceMapContent = true // TRIỆT TIÊU TOÀN BỘ BẢN ĐỒ APPLE, CHỈ DÙNG OPENSTREETMAP
-        osmOverlay.maximumZ = 19
+        // Cấu hình ngói bản đồ OpenStreetMap tốc độ cao thay thế hoàn toàn bản đồ mặc định của Apple
+        let osmOverlay = CustomOSMTileOverlay()
         mapView.addOverlay(osmOverlay, level: .aboveLabels)
         
         if let loc = navEngine.currentLocation {
-            let region = MKCoordinateRegion(center: loc.coordinate, latitudinalMeters: 1000, longitudinalMeters: 1000)
+            let region = MKCoordinateRegion(center: loc.coordinate, latitudinalMeters: 800, longitudinalMeters: 800)
             mapView.setRegion(region, animated: false)
         }
         
@@ -299,7 +353,7 @@ public struct OSMMapView: UIViewRepresentable {
             let center = uiView.centerCoordinate
             let dLat = abs(center.latitude - loc.coordinate.latitude)
             let dLon = abs(center.longitude - loc.coordinate.longitude)
-            if dLat > 0.0005 || dLon > 0.0005 {
+            if dLat > 0.0001 || dLon > 0.0001 {
                 uiView.setCenter(loc.coordinate, animated: true)
             }
         }
@@ -312,6 +366,7 @@ public struct OSMMapView: UIViewRepresentable {
     public class Coordinator: NSObject, MKMapViewDelegate {
         var parent: OSMMapView
         var currentPolyline: MKPolyline?
+        private var lastRouteKey: String = ""
         
         init(_ parent: OSMMapView) {
             self.parent = parent
@@ -333,6 +388,11 @@ public struct OSMMapView: UIViewRepresentable {
         }
         
         public func updateRoute(on mapView: MKMapView, newRoute: OSMRoute?) {
+            let count = newRoute?.coordinates.count ?? 0
+            let key = "\(count)_\(Int(newRoute?.distanceMeters ?? 0))"
+            guard key != lastRouteKey else { return }
+            lastRouteKey = key
+            
             if let old = currentPolyline {
                 mapView.removeOverlay(old)
                 currentPolyline = nil
@@ -345,4 +405,5 @@ public struct OSMMapView: UIViewRepresentable {
         }
     }
 }
+
 
