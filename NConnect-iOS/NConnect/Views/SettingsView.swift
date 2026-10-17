@@ -28,6 +28,7 @@ public struct SettingsView: View {
     ]
     
     @ObservedObject private var notificationManager = AppNotificationManager.shared
+    @ObservedObject private var callManager = CallNotificationManager.shared
     @State private var showShortcutsGuide = false
     
     public init(ccuManager: YamahaCCUManager) {
@@ -233,59 +234,100 @@ public struct SettingsView: View {
                     }
                     .padding(.vertical, 2)
                     
-                    // Nút bấm thử nghiệm
-                    VStack(spacing: 8) {
-                        Button(action: {
-                            notificationManager.postNotification(
-                                appName: "Zalo",
-                                sender: "Nguyễn Văn A",
-                                message: "Chiều nay đi uống cà phê nhé!"
-                            )
-                        }) {
-                            HStack {
-                                Image(systemName: "message.fill")
-                                Text("Gửi thử thông báo Zalo lên xe")
-                                Spacer()
-                                Text("\(notificationManager.displayDurationSeconds)s")
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
-                            }
-                            .foregroundColor(.blue)
-                        }
-                        
-                        Button(action: {
-                            notificationManager.postNotification(
-                                appName: "Tin nhắn",
-                                sender: "0901234567",
-                                message: "Mã OTP của bạn là 8866. Hết hạn trong 5 phút."
-                            )
-                        }) {
-                            HStack {
-                                Image(systemName: "bubble.left.and.bubble.right.fill")
-                                Text("Gửi thử thông báo SMS lên xe")
-                                Spacer()
-                                Text("\(notificationManager.displayDurationSeconds)s")
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
-                            }
-                            .foregroundColor(.green)
-                        }
-                        
-                        Button(action: {
-                            CallNotificationManager.shared.triggerIncomingCall(callerName: "Nguyễn Văn A (0901234567)")
-                        }) {
-                            HStack {
-                                Image(systemName: "phone.fill")
-                                Text("Thử nghiệm cuộc gọi đến (Màu xanh)")
-                                Spacer()
-                                Text("Hiện liên tục")
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
-                            }
-                            .foregroundColor(.orange)
+                }
+                
+                Section(header: Text("Gửi thử nghiệm lên màn hình xe (3 nút riêng biệt)")) {
+                    // Nút 1: Thử thông báo Zalo
+                    Button(action: {
+                        notificationManager.postNotification(
+                            appName: "Zalo",
+                            sender: "Nguyễn Văn A",
+                            message: "Chiều nay đi uống cà phê nhé!"
+                        )
+                    }) {
+                        HStack {
+                            Image(systemName: "message.fill")
+                                .foregroundColor(.blue)
+                                .frame(width: 26)
+                            Text("1. Gửi thử thông báo Zalo")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text("\(notificationManager.displayDurationSeconds)s")
+                                .font(.caption)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.blue.opacity(0.15))
+                                .cornerRadius(6)
+                                .foregroundColor(.blue)
                         }
                     }
-                    .padding(.vertical, 2)
+                    .buttonStyle(BorderlessButtonStyle())
+                    
+                    // Nút 2: Thử thông báo Tin nhắn SMS
+                    Button(action: {
+                        notificationManager.postNotification(
+                            appName: "Tin nhắn",
+                            sender: "0901234567",
+                            message: "Mã OTP của bạn là 8866. Hết hạn trong 5 phút."
+                        )
+                    }) {
+                        HStack {
+                            Image(systemName: "bubble.left.and.bubble.right.fill")
+                                .foregroundColor(.green)
+                                .frame(width: 26)
+                            Text("2. Gửi thử tin nhắn SMS")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text("\(notificationManager.displayDurationSeconds)s")
+                                .font(.caption)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.green.opacity(0.15))
+                                .cornerRadius(6)
+                                .foregroundColor(.green)
+                        }
+                    }
+                    .buttonStyle(BorderlessButtonStyle())
+                    
+                    // Nút 3: Thử nghiệm cuộc gọi đến
+                    Button(action: {
+                        CallNotificationManager.shared.triggerIncomingCall(callerName: "Nguyễn Văn A (0901234567)")
+                    }) {
+                        HStack {
+                            Image(systemName: "phone.fill")
+                                .foregroundColor(Color(red: 0.0, green: 0.85, blue: 0.35))
+                                .frame(width: 26)
+                            Text("3. Thử cuộc gọi đến (Nền xanh lá)")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text("Hiện liên tục")
+                                .font(.caption)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.green.opacity(0.15))
+                                .cornerRadius(6)
+                                .foregroundColor(Color(red: 0.0, green: 0.85, blue: 0.35))
+                        }
+                    }
+                    .buttonStyle(BorderlessButtonStyle())
+                    
+                    // Nút tiện ích: Tắt / kết thúc cuộc gọi thử nghiệm nếu đang đổ chuông hoặc đàm thoại
+                    if callManager.isCallRinging || callManager.isCallConnected {
+                        Button(action: {
+                            CallNotificationManager.shared.rejectCall()
+                        }) {
+                            HStack {
+                                Image(systemName: "phone.down.fill")
+                                    .foregroundColor(.red)
+                                    .frame(width: 26)
+                                Text("Tắt / Kết thúc cuộc gọi thử")
+                                    .foregroundColor(.red)
+                                    .fontWeight(.semibold)
+                                Spacer()
+                            }
+                        }
+                        .buttonStyle(BorderlessButtonStyle())
+                    }
                 }
                 
                 Section(header: Text("Hướng dẫn nhận thông báo tự động từ iPhone")) {
@@ -325,7 +367,7 @@ public struct SettingsView: View {
                     HStack {
                         Text("Phiên bản")
                         Spacer()
-                        Text("0.5.16 (Build 42)")
+                        Text("0.5.17 (Build 43)")
                             .foregroundColor(.secondary)
                     }
                     Text("MyNMAX - Dẫn đường và thông báo cho xe máy Yamaha có màn hình TFT.")

@@ -193,6 +193,21 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
 
 ---
 
+### 🔴 TÍNH NĂNG 10: Tách riêng biệt 3 nút gửi thử thông báo và cuộc gọi trong Cài đặt
+* **Nguyên nhân lỗi trước đây**:
+  - Trong SwiftUI `Form`, khi gom nhiều `Button` bên trong một `VStack` đơn lẻ, iOS coi cả `VStack` là một dòng (`UITableViewCell`) duy nhất.
+  - Khi người dùng chạm ngón tay vào ô đó, sự kiện bấm (tap gesture) bị truyền đồng thời tới tất cả các nút con trong cùng dòng, khiến cả 3 chức năng (Zalo, SMS, Cuộc gọi) cùng kích hoạt một lúc.
+* **Giải pháp khắc phục triệt để**:
+  1. Tách hẳn thành một `Section` riêng biệt: `Gửi thử nghiệm lên màn hình xe (3 nút riêng biệt)`.
+  2. Mỗi nút bấm là một dòng độc lập trong Form, áp dụng `.buttonStyle(BorderlessButtonStyle())` để cách ly hoàn toàn sự kiện chạm, không bao giờ bị kích hoạt chéo.
+  3. Bổ sung nút tiện ích: `Tắt / Kết thúc cuộc gọi thử` (xuất hiện khi cuộc gọi thử đang đổ chuông/đàm thoại) để người dùng có thể tắt ngay từ app mà không cần ra xe bấm cùm.
+  4. Đánh số thứ tự rõ ràng kèm icon màu và badge hiển thị thời gian:
+     - `1. Gửi thử thông báo Zalo` (Xanh dương, hiển thị theo số giây cài đặt).
+     - `2. Gửi thử tin nhắn SMS` (Xanh lá, hiển thị theo số giây cài đặt).
+     - `3. Thử cuộc gọi đến` (Xanh lá cây, hiển thị liên tục).
+
+---
+
 ## 4. QUY TRÌNH BIÊN DỊCH VÀ PHÁT HÀNH (CI/CD)
 - Dự án sử dụng GitHub Actions workflow (`.github/workflows/build-ios.yml`).
 - Mỗi khi có commit mới được push lên nhánh `main`, hệ thống tự động:
