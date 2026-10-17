@@ -41,6 +41,17 @@ jobs:
           echo '```text' >> $GITHUB_STEP_SUMMARY
           grep -C 3 -E "(error:|fatal error:)" xcodebuild.log | head -n 100 >> $GITHUB_STEP_SUMMARY || tail -n 60 xcodebuild.log >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -E "error:" xcodebuild.log | while IFS= read -r line; do
+            echo "::error::$line"
+          done
+
+      - name: Xuất log xcodebuild để phân tích
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
+          retention-days: 1
 
       - name: 4. Đóng gói thành file .IPA
         run: |
