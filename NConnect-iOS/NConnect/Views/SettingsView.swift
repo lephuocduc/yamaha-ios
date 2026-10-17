@@ -5,7 +5,7 @@ public struct SettingsView: View {
     
     @AppStorage("selectedBikeModel") private var selectedBikeModel = "Yamaha XMAX 300"
     @AppStorage("autoReconnect") private var autoReconnect = true
-    @AppStorage("osmTileStyle") private var osmTileStyle = "OSM Voyager (Sắc nét)"
+    @AppStorage("osmTileStyle") private var osmTileStyle = "OpenStreetMap Chuẩn (FOSSGIS)"
     @AppStorage("valhallaServerUrl") private var valhallaServerUrl = "https://valhalla1.openstreetmap.de"
     
     let bikeModels = [
@@ -18,9 +18,9 @@ public struct SettingsView: View {
     ]
     
     let osmTileStyles = [
-        "OSM Voyager (Sắc nét)",
-        "OSM Carto Dark (Tối cho xe)",
-        "OSM Chuẩn (Sáng)"
+        "OpenStreetMap Chuẩn (FOSSGIS)",
+        "OpenStreetMap Quốc Tế (Wikimedia)",
+        "OpenStreetMap Xe 2 Bánh (CyclOSM)"
     ]
     
     public init(ccuManager: YamahaCCUManager) {
@@ -47,13 +47,16 @@ public struct SettingsView: View {
                         }
                     }
                     .onChange(of: osmTileStyle) { val in
-                        if val.contains("Dark") {
-                            OSMTileEngine.shared.tileUrlTemplate = "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
-                        } else if val.contains("Voyager") {
-                            OSMTileEngine.shared.tileUrlTemplate = "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+                        let tmpl: String
+                        if val.contains("Wikimedia") {
+                            tmpl = "https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png"
+                        } else if val.contains("CyclOSM") {
+                            tmpl = "https://a.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png"
                         } else {
-                            OSMTileEngine.shared.tileUrlTemplate = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                            tmpl = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
                         }
+                        CustomOSMTileOverlay.currentTileTemplate = tmpl
+                        OSMTileEngine.shared.tileUrlTemplate = tmpl
                     }
                     
                     HStack {

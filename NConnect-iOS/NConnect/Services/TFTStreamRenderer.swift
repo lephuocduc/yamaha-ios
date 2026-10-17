@@ -13,13 +13,14 @@ public final class OSMTileEngine {
     private let cacheDirectory: URL
     private let session: URLSession
     
-    // Mặc định dùng ngói CartoDB Dark Matter (100% dữ liệu OpenStreetMap, Singapore CDN siêu nhanh, tối ưu tương phản cho màn hình xe)
-    public var tileUrlTemplate: String = "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+    // Mặc định dùng ngói OpenStreetMap chuẩn của FOSSGIS (100% dữ liệu OSM, không cần API key, độ tương phản sắc nét)
+    public var tileUrlTemplate: String = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
     
     public init() {
         memoryCache.countLimit = 300 // Lưu tối đa 300 ngói trong bộ nhớ RAM
         let paths = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)
-        cacheDirectory = paths[0].appendingPathComponent("OSMTiles")
+        // Dùng thư mục cache mới để tự động xóa sạch các ngói watermark CartoDB cũ nếu có
+        cacheDirectory = paths[0].appendingPathComponent("OSMTiles_v2")
         try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         
         let config = URLSessionConfiguration.default
@@ -34,7 +35,7 @@ public final class OSMTileEngine {
             return cached
         }
         let fileURL = cacheDirectory.appendingPathComponent("\(z)_\(x)_\(y).png")
-        if let data = try? Data(contentsOf: fileURL), let img = UIImage(data: data) {
+        if let data = try? Data(contentsOf: fileURL), data.count > 1000, let img = UIImage(data: data) {
             memoryCache.setObject(img, forKey: key)
             return img
         }
@@ -62,15 +63,37 @@ public final class OSMTileEngine {
         request.timeoutInterval = 6
         
         session.dataTask(with: request) { [weak self] data, response, error in
-            guard let self = self, let data = data, (response as? HTTPURLResponse)?.statusCode == 200, let img = UIImage(data: data) else {
+            guard let self = self else {
                 completion(nil)
                 return
             }
-            let key = "\(z)_\(x)_\(y)" as NSString
-            self.memoryCache.setObject(img, forKey: key)
-            let fileURL = self.cacheDirectory.appendingPathComponent("\(z)_\(x)_\(y).png")
-            try? data.write(to: fileURL)
-            completion(img)
+            if let data = data, (response as? HTTPURLResponse)?.statusCode == 200, data.count > 1000, let img = UIImage(data: data) {
+                let key = "\(z)_\(x)_\(y)" as NSString
+                self.memoryCache.setObject(img, forKey: key)
+                let fileURL = self.cacheDirectory.appendingPathComponent("\(z)_\(x)_\(y).png")
+                try? data.write(to: fileURL)
+                completion(img)
+            } else {
+                // Fallback: Thử máy chủ Wikimedia OSM
+                let fbUrlStr = "https://maps.wikimedia.org/osm-intl/\(z)/\(x)/\(y).png"
+                if let fbUrl = URL(string: fbUrlStr) {
+                    var req2 = URLRequest(url: fbUrl)
+                    req2.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
+                    self.session.dataTask(with: req2) { d2, r2, _ in
+                        if let d2 = d2, (r2 as? HTTPURLResponse)?.statusCode == 200, d2.count > 1000, let img2 = UIImage(data: d2) {
+                            let key = "\(z)_\(x)_\(y)" as NSString
+                            self.memoryCache.setObject(img2, forKey: key)
+                            let fileURL = self.cacheDirectory.appendingPathComponent("\(z)_\(x)_\(y).png")
+                            try? d2.write(to: fileURL)
+                            completion(img2)
+                        } else {
+                            completion(nil)
+                        }
+                    }.resume()
+                } else {
+                    completion(nil)
+                }
+            }
         }.resume()
     }
 }

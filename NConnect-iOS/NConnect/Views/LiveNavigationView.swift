@@ -260,17 +260,19 @@ public struct LiveNavigationView: View {
 
 // MARK: - Lớp nạp ngói bản đồ OpenStreetMap tốc độ cao có bộ đệm và tự động phục hồi
 public class CustomOSMTileOverlay: MKTileOverlay {
+    public static var currentTileTemplate: String = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
     private let session: URLSession
     private let memoryCache = NSCache<NSString, NSData>()
     
-    public init() {
+    public init(urlTemplate: String? = nil) {
+        let template = urlTemplate ?? CustomOSMTileOverlay.currentTileTemplate
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 6
         config.requestCachePolicy = .returnCacheDataElseLoad
         self.session = URLSession(configuration: config)
         
-        // Mặc định dùng ngói CartoDB Voyager (100% dữ liệu OpenStreetMap, Singapore CDN siêu nhanh)
-        super.init(urlTemplate: "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png")
+        // Mặc định dùng ngói OpenStreetMap chuẩn của FOSSGIS (100% dữ liệu OSM, không cần API key)
+        super.init(urlTemplate: template)
         self.canReplaceMapContent = true
         self.maximumZ = 19
         self.tileSize = CGSize(width: 256, height: 256)
@@ -290,21 +292,37 @@ public class CustomOSMTileOverlay: MKTileOverlay {
         request.timeoutInterval = 6
         
         session.dataTask(with: request) { [weak self] data, response, error in
-            if let data = data, (response as? HTTPURLResponse)?.statusCode == 200 {
-                self?.memoryCache.setObject(data as NSData, forKey: key)
+            guard let self = self else { return }
+            if let data = data, (response as? HTTPURLResponse)?.statusCode == 200, data.count > 1000 {
+                self.memoryCache.setObject(data as NSData, forKey: key)
                 result(data, nil)
             } else {
-                // Fallback thử OpenStreetMap server nếu CartoDB gặp sự cố
-                let fallbackUrlStr = "https://tile.openstreetmap.org/\(path.z)/\(path.x)/\(path.y).png"
-                if let fallbackUrl = URL(string: fallbackUrlStr) {
-                    var req2 = URLRequest(url: fallbackUrl)
-                    req2.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
-                    self?.session.dataTask(with: req2) { d2, r2, e2 in
-                        if let d2 = d2, (r2 as? HTTPURLResponse)?.statusCode == 200 {
-                            self?.memoryCache.setObject(d2 as NSData, forKey: key)
-                            result(d2, nil)
+                // Fallback 1: Thử máy chủ Wikimedia OpenStreetMap nếu OSM DE bận
+                let fallback1 = "https://maps.wikimedia.org/osm-intl/\(path.z)/\(path.x)/\(path.y).png"
+                if let fallbackUrl1 = URL(string: fallback1) {
+                    var req1 = URLRequest(url: fallbackUrl1)
+                    req1.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
+                    self.session.dataTask(with: req1) { d1, r1, _ in
+                        if let d1 = d1, (r1 as? HTTPURLResponse)?.statusCode == 200, d1.count > 1000 {
+                            self.memoryCache.setObject(d1 as NSData, forKey: key)
+                            result(d1, nil)
                         } else {
-                            result(nil, error)
+                            // Fallback 2: Thử CyclOSM (nguồn mở cho xe hai bánh)
+                            let fallback2 = "https://a.tile-cyclosm.openstreetmap.fr/cyclosm/\(path.z)/\(path.x)/\(path.y).png"
+                            if let fallbackUrl2 = URL(string: fallback2) {
+                                var req2 = URLRequest(url: fallbackUrl2)
+                                req2.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
+                                self.session.dataTask(with: req2) { d2, r2, e2 in
+                                    if let d2 = d2, (r2 as? HTTPURLResponse)?.statusCode == 200, d2.count > 1000 {
+                                        self.memoryCache.setObject(d2 as NSData, forKey: key)
+                                        result(d2, nil)
+                                    } else {
+                                        result(nil, error)
+                                    }
+                                }.resume()
+                            } else {
+                                result(nil, error)
+                            }
                         }
                     }.resume()
                 } else {
