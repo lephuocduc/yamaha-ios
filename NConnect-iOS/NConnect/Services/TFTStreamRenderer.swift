@@ -79,7 +79,11 @@ public final class OSMTileEngine {
                 if let fbUrl = URL(string: fbUrlStr) {
                     var req2 = URLRequest(url: fbUrl)
                     req2.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
-                    self.session.dataTask(with: req2) { d2, r2, _ in
+                    self.session.dataTask(with: req2) { [weak self] d2, r2, _ in
+                        guard let self = self else {
+                            completion(nil)
+                            return
+                        }
                         if let d2 = d2, (r2 as? HTTPURLResponse)?.statusCode == 200, d2.count > 1000, let img2 = UIImage(data: d2) {
                             let key = "\(z)_\(x)_\(y)" as NSString
                             self.memoryCache.setObject(img2, forKey: key)

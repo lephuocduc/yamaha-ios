@@ -55,7 +55,6 @@ public struct SettingsView: View {
                         } else {
                             tmpl = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
                         }
-                        CustomOSMTileOverlay.currentTileTemplate = tmpl
                         OSMTileEngine.shared.tileUrlTemplate = tmpl
                     }
                     
