@@ -83,6 +83,25 @@ public struct ParkedBikeLocation: Codable, Identifiable, Equatable {
             return String(format: "%.1f km", meters / 1000.0)
         }
     }
+    
+    // Mở ứng dụng Apple Maps chỉ đường đi bộ tới xe
+    public func openInAppleMaps() {
+        let urlString = "http://maps.apple.com/?daddr=\(latitude),\(longitude)&dirflg=w"
+        if let url = URL(string: urlString), UIApplication.shared.canOpenURL(url) {
+            UIApplication.shared.open(url, options: [:], completionHandler: nil)
+        }
+    }
+    
+    // Mở ứng dụng Google Maps chỉ đường đi bộ tới xe
+    public func openInGoogleMaps() {
+        let gmapsScheme = "comgooglemaps://?daddr=\(latitude),\(longitude)&directionsmode=walking"
+        let webUrl = "https://www.google.com/maps/dir/?api=1&destination=\(latitude),\(longitude)&travelmode=walking"
+        if let schemeUrl = URL(string: gmapsScheme), UIApplication.shared.canOpenURL(schemeUrl) {
+            UIApplication.shared.open(schemeUrl, options: [:], completionHandler: nil)
+        } else if let url = URL(string: webUrl), UIApplication.shared.canOpenURL(url) {
+            UIApplication.shared.open(url, options: [:], completionHandler: nil)
+        }
+    }
 }
 
 // MARK: - Quản lý tự động lưu và tìm kiếm vị trí đỗ xe Yamaha (Find My Bike)
