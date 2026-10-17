@@ -184,17 +184,66 @@ public struct NavigationStep: Identifiable {
 }
 
 // MARK: - Tuyến đường lộ trình OpenStreetMap (OSM Route)
-public struct OSMRoute {
+public struct OSMRoute: Identifiable, Equatable {
+    public let id: UUID
     public let coordinates: [CLLocationCoordinate2D]
     public let distanceMeters: Double
     public let durationSeconds: Double
     public let steps: [NavigationStep]
+    public var routeName: String             // Ví dụ: "Qua Đ. Pasteur" hoặc "Tuyến chính"
+    public var isFastest: Bool               // Tuyến có thời gian nhanh nhất
+    public var timeDifferenceSeconds: Double // Chênh lệch thời gian so với tuyến nhanh nhất (giây)
     
-    public init(coordinates: [CLLocationCoordinate2D], distanceMeters: Double, durationSeconds: Double, steps: [NavigationStep]) {
+    public static func == (lhs: OSMRoute, rhs: OSMRoute) -> Bool {
+        lhs.id == rhs.id
+    }
+    
+    public init(
+        id: UUID = UUID(),
+        coordinates: [CLLocationCoordinate2D],
+        distanceMeters: Double,
+        durationSeconds: Double,
+        steps: [NavigationStep],
+        routeName: String = "",
+        isFastest: Bool = true,
+        timeDifferenceSeconds: Double = 0.0
+    ) {
+        self.id = id
         self.coordinates = coordinates
         self.distanceMeters = distanceMeters
         self.durationSeconds = durationSeconds
         self.steps = steps
+        self.routeName = routeName
+        self.isFastest = isFastest
+        self.timeDifferenceSeconds = timeDifferenceSeconds
+    }
+    
+    public var formattedDuration: String {
+        let mins = max(1, Int(round(durationSeconds / 60.0)))
+        if mins < 60 {
+            return "\(mins) phút"
+        } else {
+            let h = mins / 60
+            let m = mins % 60
+            return m > 0 ? "\(h)h \(m)p" : "\(h) giờ"
+        }
+    }
+    
+    public var formattedDistance: String {
+        if distanceMeters < 1000 {
+            return "\(Int(distanceMeters)) m"
+        } else {
+            return String(format: "%.1f km", distanceMeters / 1000.0)
+        }
+    }
+    
+    public var timeDiffString: String {
+        if isFastest || timeDifferenceSeconds <= 30 {
+            return "Nhanh nhất"
+        }
+        let mins = max(1, Int(round(timeDifferenceSeconds / 60.0)))
+        return "+\(mins) phút"
     }
 }
+
 

@@ -147,6 +147,29 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
 
 ---
 
+### 🔴 TÍNH NĂNG 8: Gợi ý các tuyến đường thay thế (Alternative Routes) & Chạm vào bản đồ để chuyển tuyến (Google Maps Style)
+* **Yêu cầu**: Tương tự như Google Maps, khi tìm đường và dẫn đường cần hiển thị các tuyến đường gợi ý thay thế. Nếu thấy tối ưu hơn, người dùng có thể nhấp trực tiếp vào đường vẽ gợi ý trên bản đồ (hoặc thẻ tóm tắt) để đổi tuyến và đi theo lộ trình đó.
+* **Kiến trúc giải pháp chuẩn xác**:
+  1. **Routing Engines (Valhalla & OSRM) đa lộ trình**:
+     - Valhalla: Bổ sung tham số `"alternates": 2`. Khi phản hồi, `json["trip"]` chứa tuyến chính và `json["alternates"]` chứa danh sách các `{ "trip": ... }` thay thế.
+     - OSRM: Bổ sung tham số `&alternatives=true` để lấy mảng `json["routes"]`.
+     - Tự động thống kê các con đường chính đã đi qua (`roadDistances`) để đặt tên tuyến thân thiện tự nhiên như Google Maps: *"Qua Đ. Pasteur"*, *"Qua Đ. Hai Bà Trưng"*, *"Qua Đ. Nam Kỳ Khởi Nghĩa"*.
+     - Tự động tính chênh lệch thời gian so với tuyến nhanh nhất: *"Nhanh nhất"*, *"+3 phút"*, *"+7 phút"*.
+  2. **Hiển thị trực quan trên bản đồ iPhone (`MKMapView`) & Màn hình xe Yamaha TFT**:
+     - Tuyến đang chọn (Active Route): Vẽ bằng màu **Xanh Yamaha Racing Neon Cyan (`#00B0FF`)** siêu sáng, độ dày 11.0pt, nằm trên cùng.
+     - Các tuyến gợi ý thay thế (Alternative Routes): Vẽ bằng màu **Xám khói tương phản (`#78909C`)** độ dày 7.5pt, nằm bên dưới.
+     - Cả trên màn hình TFT xe máy cũng đồng bộ hiển thị các tuyến xám này để người lái dễ quan sát các ngã rẽ khả dĩ.
+  3. **Cử chỉ tương tác chạm trực tiếp vào đường vẽ (Polyline Touch Detection)**:
+     - Tích hợp `UITapGestureRecognizer` trên `MKMapView`.
+     - Thuật toán tính khoảng cách vuông góc từ điểm chạm ngón tay (`CGPoint`) đến từng đoạn thẳng (`Segment`) của các tuyến đường thay thế (`pointToSegmentDistance`).
+     - Ngưỡng dung sai chạm: 36 points (~1cm trên màn hình iPhone), cực kỳ nhạy và dễ bấm chính xác ngay cả khi gắn điện thoại trên giá đỡ xe máy.
+     - Khi phát hiện chạm trúng tuyến thay thế: Kích hoạt rung phản hồi xúc giác (`UIImpactFeedbackGenerator(style: .medium)`), gọi `navEngine.selectRoute(selectedRoute)` để chuyển đổi tức thì.
+  4. **Thẻ chọn lộ trình (Route Carousel) & Nút chuyển nhanh khi đang chạy xe**:
+     - Ở màn hình xem trước: Carousel vuốt ngang hiển thị các thẻ tuyến đường với thông số thời gian, chênh lệch phút, độ dài cự ly và tên đường chính.
+     - Khi đang lái xe dẫn đường (`isNavigating`): Hiển thị thanh chuyển nhanh (`alternativeRoutesNavigationPill`) nổi ở phía dưới để người lái có thể bấm nút hoặc nhấp thẳng vào đường vẽ trên bản đồ.
+
+---
+
 ## 4. QUY TRÌNH BIÊN DỊCH VÀ PHÁT HÀNH (CI/CD)
 - Dự án sử dụng GitHub Actions workflow (`.github/workflows/build-ios.yml`).
 - Mỗi khi có commit mới được push lên nhánh `main`, hệ thống tự động:
@@ -154,3 +177,4 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
   2. Biên dịch dự án bằng lệnh `xcodebuild` (SDK `iphoneos`, cấu hình `Release`).
   3. Đóng gói thư mục `Payload` thành file `NConnect.ipa`.
   4. Xuất file Artifact `NConnect-iOS-IPA` để tải về và cài đặt trực tiếp qua TrollStore / AltStore / Sideloadly / Scarlet.
+

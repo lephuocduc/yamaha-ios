@@ -302,7 +302,12 @@ public struct LiveNavigationView: View {
                     routePreviewCard
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
-                    bottomControlsBar
+                    VStack(spacing: 8) {
+                        if navEngine.isNavigating && !navEngine.alternativeRoutes.isEmpty {
+                            alternativeRoutesNavigationPill
+                        }
+                        bottomControlsBar
+                    }
                 }
                 
                 // 4. Nhãn bản quyền OpenStreetMap & Valhalla bắt buộc
@@ -672,40 +677,125 @@ public struct LiveNavigationView: View {
     // MARK: - Thẻ tóm tắt lộ trình phong cách Google Maps (hiển thị khi vẽ đường xong)
     private var routePreviewCard: some View {
         VStack(spacing: 12) {
-            HStack(alignment: .center) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(formatDuration(seconds: navEngine.activeRoute?.durationSeconds ?? 0))
-                            .font(.system(size: 24, weight: .heavy))
-                            .foregroundColor(.green)
-                        
-                        Text("(\(formatDistance(meters: navEngine.activeRoute?.distanceMeters ?? 0)))")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.white.opacity(0.9))
+            // Danh sách các tuyến đường lựa chọn (Google Maps Alternative Routes Carousel)
+            if navEngine.allCalculatedRoutes.count > 1 {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.cyan)
+                        Text("CÁC TUYẾN ĐƯỜNG GỢI Ý (CHẠM ĐỂ CHỌN)")
+                            .font(.system(size: 11, weight: .heavy))
+                            .foregroundColor(.cyan)
+                        Spacer()
                     }
                     
-                    HStack(spacing: 6) {
-                        Image(systemName: "bicycle")
-                            .foregroundColor(.cyan)
-                        Text("Tuyến đường tối ưu xe máy (Valhalla OSM)")
-                            .font(.caption)
-                            .foregroundColor(.gray)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(navEngine.allCalculatedRoutes) { r in
+                                let isSelected = (r.id == navEngine.activeRoute?.id)
+                                Button(action: {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        navEngine.selectRoute(r)
+                                    }
+                                    let feedback = UIImpactFeedbackGenerator(style: .medium)
+                                    feedback.impactOccurred()
+                                }) {
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        HStack(spacing: 6) {
+                                            Text(r.formattedDuration)
+                                                .font(.system(size: 18, weight: .heavy))
+                                                .foregroundColor(isSelected ? (r.isFastest ? .green : .cyan) : .white)
+                                            
+                                            Text(r.timeDiffString)
+                                                .font(.system(size: 10, weight: .heavy))
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(r.isFastest ? Color.green.opacity(0.25) : Color.orange.opacity(0.25))
+                                                .foregroundColor(r.isFastest ? .green : .orange)
+                                                .cornerRadius(6)
+                                        }
+                                        
+                                        HStack(spacing: 4) {
+                                            Text(r.formattedDistance)
+                                                .font(.system(size: 12, weight: .bold))
+                                                .foregroundColor(.white.opacity(0.85))
+                                            
+                                            Text("•")
+                                                .font(.system(size: 10))
+                                                .foregroundColor(.gray)
+                                            
+                                            Text(r.routeName)
+                                                .font(.system(size: 12, weight: .medium))
+                                                .foregroundColor(isSelected ? .white : .gray)
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 10)
+                                    .background(isSelected ? Color(red: 0.0, green: 0.22, blue: 0.35).opacity(0.85) : Color(white: 0.16))
+                                    .cornerRadius(14)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .stroke(isSelected ? Color.cyan : Color.gray.opacity(0.4), lineWidth: isSelected ? 2.0 : 1.0)
+                                    )
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
+                        }
+                        .padding(.horizontal, 2)
                     }
                 }
-                
-                Spacer()
-                
-                // Nút đóng / hủy lộ trình
-                Button(action: {
-                    clearRoute()
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(.gray)
+            } else {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text(formatDuration(seconds: navEngine.activeRoute?.durationSeconds ?? 0))
+                                .font(.system(size: 24, weight: .heavy))
+                                .foregroundColor(.green)
+                            
+                            Text("(\(formatDistance(meters: navEngine.activeRoute?.distanceMeters ?? 0)))")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.9))
+                        }
+                        
+                        HStack(spacing: 6) {
+                            Image(systemName: "bicycle")
+                                .foregroundColor(.cyan)
+                            Text(navEngine.activeRoute?.routeName.isEmpty == false ? navEngine.activeRoute!.routeName : "Tuyến đường tối ưu xe máy (Valhalla OSM)")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    
+                    Spacer()
+                    
+                    // Nút đóng / hủy lộ trình
+                    Button(action: {
+                        clearRoute()
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(.gray)
+                    }
                 }
             }
             
             HStack(spacing: 12) {
+                // Nút Đóng nếu có nhiều tuyến
+                if navEngine.allCalculatedRoutes.count > 1 {
+                    Button(action: {
+                        clearRoute()
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(.white.opacity(0.8))
+                            .padding(14)
+                            .background(Color(white: 0.2))
+                            .cornerRadius(12)
+                    }
+                }
+                
                 // Nút Bắt đầu dẫn đường to nổi bật
                 Button(action: {
                     startNavigation()
@@ -725,12 +815,57 @@ public struct LiveNavigationView: View {
                 }
             }
         }
-        .padding(16)
+        .padding(14)
         .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.96))
         .cornerRadius(18)
         .shadow(color: Color.black.opacity(0.5), radius: 10, y: 4)
         .padding(.horizontal)
         .padding(.bottom, 6)
+    }
+    
+    // MARK: - Thanh chuyển nhanh sang tuyến thay thế khi đang điều hướng
+    private var alternativeRoutesNavigationPill: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(navEngine.alternativeRoutes) { alt in
+                    Button(action: {
+                        withAnimation {
+                            navEngine.selectRoute(alt)
+                            toastMessage = "Đã chọn: \(alt.routeName)"
+                            showOrientationToast = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                                showOrientationToast = false
+                            }
+                        }
+                        let feedback = UIImpactFeedbackGenerator(style: .medium)
+                        feedback.impactOccurred()
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.triangle.swap")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.cyan)
+                            Text("Đổi: \(alt.routeName)")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white)
+                            Text("(\(alt.timeDiffString))")
+                                .font(.system(size: 11, weight: .heavy))
+                                .foregroundColor(alt.isFastest ? .green : .orange)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Color(red: 0.08, green: 0.14, blue: 0.22).opacity(0.92))
+                        .cornerRadius(16)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.cyan.opacity(0.6), lineWidth: 1.2)
+                        )
+                        .shadow(radius: 4)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .padding(.horizontal)
+        }
     }
     
     // MARK: - Thanh điều khiển bản đồ & mini preview TFT phía dưới
@@ -1288,6 +1423,14 @@ public class CustomOSMTileOverlay: MKTileOverlay {
     }
 }
 
+// MARK: - Lớp Polyline lộ trình tùy biến hỗ trợ Tuyến chính / Tuyến gợi ý thay thế
+public class NavRoutePolyline: MKPolyline {
+    public var routeId: UUID = UUID()
+    public var isActiveRoute: Bool = false
+    public var routeName: String = ""
+    public var timeDiffString: String = ""
+}
+
 // MARK: - View Bản đồ OpenStreetMap tương tác (Vẽ lộ trình Google Maps, Ghim Điểm A/B & Điểm nhấn giữ)
 public struct OSMMapView: UIViewRepresentable {
     @ObservedObject var navEngine: NavigationEngine
@@ -1325,6 +1468,11 @@ public struct OSMMapView: UIViewRepresentable {
         mapView.showsUserLocation = true
         mapView.showsCompass = false // Tắt la bàn mặc định ở góc trên (bị hộp tìm kiếm che)
         mapView.showsScale = true
+        
+        // Thêm nhận diện cử chỉ chạm vào tuyến đường thay thế trên bản đồ (Tap to select Alternative Route)
+        let tapGesture = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleMapTap(_:)))
+        tapGesture.cancelsTouchesInView = false
+        mapView.addGestureRecognizer(tapGesture)
         
         // Thêm nhận diện cử chỉ nhấn giữ bản đồ để chọn địa điểm (Long Press to Drop Pin)
         let longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleLongPress(_:)))
@@ -1450,7 +1598,8 @@ public struct OSMMapView: UIViewRepresentable {
     
     public class Coordinator: NSObject, MKMapViewDelegate {
         var parent: OSMMapView
-        var currentPolyline: MKPolyline?
+        var activePolyline: NavRoutePolyline?
+        var alternativePolylines: [NavRoutePolyline] = []
         var routeAnnotations: [MKAnnotation] = []
         var droppedPinAnnotation: RoutePointAnnotation?
         var compassButton: MKCompassButton?
@@ -1476,6 +1625,69 @@ public struct OSMMapView: UIViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 self?.parent.onLocationLongPressed?(coord)
             }
+        }
+        
+        // MARK: - Nhận diện chạm vào tuyến đường thay thế trên bản đồ (Google Maps style Tap Route to Select)
+        @objc func handleMapTap(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended else { return }
+            guard let mapView = gesture.view as? MKMapView else { return }
+            let tapPoint = gesture.location(in: mapView)
+            
+            let alternatives = parent.navEngine.alternativeRoutes
+            guard !alternatives.isEmpty else { return }
+            
+            var closestRoute: OSMRoute? = nil
+            var minDistance: CGFloat = 36.0 // Ngưỡng nhận diện chạm 36 points (~1cm màn hình iPhone)
+            
+            for alt in alternatives {
+                let d = distanceToRoute(tapPoint: tapPoint, coordinates: alt.coordinates, in: mapView)
+                if d < minDistance {
+                    minDistance = d
+                    closestRoute = alt
+                }
+            }
+            
+            if let selected = closestRoute {
+                let feedback = UIImpactFeedbackGenerator(style: .medium)
+                feedback.impactOccurred()
+                
+                DispatchQueue.main.async { [weak self] in
+                    self?.parent.navEngine.selectRoute(selected)
+                }
+            }
+        }
+        
+        private func distanceToRoute(tapPoint: CGPoint, coordinates: [CLLocationCoordinate2D], in mapView: MKMapView) -> CGFloat {
+            guard coordinates.count >= 2 else { return .infinity }
+            var minDistance: CGFloat = .infinity
+            var prevPoint: CGPoint? = nil
+            
+            // Lấy mẫu nếu tuyến có quá nhiều điểm (tối ưu hóa hiệu năng)
+            let step = max(1, coordinates.count / 400)
+            for i in stride(from: 0, to: coordinates.count, by: step) {
+                let pt = mapView.convert(coordinates[i], toPointTo: mapView)
+                if let p1 = prevPoint {
+                    let d = pointToSegmentDistance(p: tapPoint, a: p1, b: pt)
+                    if d < minDistance {
+                        minDistance = d
+                    }
+                }
+                prevPoint = pt
+            }
+            return minDistance
+        }
+        
+        private func pointToSegmentDistance(p: CGPoint, a: CGPoint, b: CGPoint) -> CGFloat {
+            let dx = b.x - a.x
+            let dy = b.y - a.y
+            let lenSq = dx * dx + dy * dy
+            if lenSq == 0 {
+                return hypot(p.x - a.x, p.y - a.y)
+            }
+            let t = max(0.0, min(1.0, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq))
+            let projX = a.x + t * dx
+            let projY = a.y + t * dy
+            return hypot(p.x - projX, p.y - projY)
         }
         
         public func updateDroppedPin(on mapView: MKMapView, coord: CLLocationCoordinate2D?) {
@@ -1510,9 +1722,25 @@ public struct OSMMapView: UIViewRepresentable {
             if let tileOverlay = overlay as? MKTileOverlay {
                 return MKTileOverlayRenderer(tileOverlay: tileOverlay)
             }
+            if let navPoly = overlay as? NavRoutePolyline {
+                let renderer = MKPolylineRenderer(polyline: navPoly)
+                if navPoly.isActiveRoute {
+                    // Tuyến chính đang dẫn đường: Màu xanh Yamaha Neon Cyan siêu sáng 11.0pt
+                    renderer.strokeColor = UIColor(red: 0.0, green: 0.70, blue: 1.0, alpha: 0.98)
+                    renderer.lineWidth = 11.0
+                    renderer.lineCap = .round
+                    renderer.lineJoin = .round
+                } else {
+                    // Tuyến gợi ý thay thế (Google Maps style): Màu xám khói slate gray tương phản 7.5pt
+                    renderer.strokeColor = UIColor(red: 0.50, green: 0.60, blue: 0.70, alpha: 0.88)
+                    renderer.lineWidth = 7.5
+                    renderer.lineCap = .round
+                    renderer.lineJoin = .round
+                }
+                return renderer
+            }
             if let polyline = overlay as? MKPolyline {
                 let renderer = MKPolylineRenderer(polyline: polyline)
-                // Đường polyline màu xanh neon siêu tương phản, nét dày 11.0pt dễ nhìn khi chạy xe máy ngoài trời
                 renderer.strokeColor = UIColor(red: 0.0, green: 0.70, blue: 1.0, alpha: 0.98)
                 renderer.lineWidth = 11.0
                 renderer.lineCap = .round
@@ -1553,26 +1781,47 @@ public struct OSMMapView: UIViewRepresentable {
             coordA: CLLocationCoordinate2D?,
             coordB: CLLocationCoordinate2D?
         ) {
-            let count = newRoute?.coordinates.count ?? 0
-            let key = "\(count)_\(Int(newRoute?.distanceMeters ?? 0))_\(coordA?.latitude ?? 0)_\(coordB?.latitude ?? 0)"
+            let routeId = newRoute?.id.uuidString ?? ""
+            let altCount = parent.navEngine.alternativeRoutes.count
+            let key = "\(routeId)_\(altCount)_\(coordA?.latitude ?? 0)_\(coordB?.latitude ?? 0)"
             guard key != lastRouteKey else { return }
             lastRouteKey = key
             
-            // Xóa polyline cũ và các marker cũ
-            if let old = currentPolyline {
-                mapView.removeOverlay(old)
-                currentPolyline = nil
+            // Xóa toàn bộ polyline cũ
+            if let oldActive = activePolyline {
+                mapView.removeOverlay(oldActive)
+                activePolyline = nil
             }
+            for alt in alternativePolylines {
+                mapView.removeOverlay(alt)
+            }
+            alternativePolylines.removeAll()
+            
             mapView.removeAnnotations(routeAnnotations)
             routeAnnotations.removeAll()
             
-            guard let r = newRoute, !r.coordinates.isEmpty else { return }
+            // 1. Thêm các tuyến đường thay thế (Alternative Routes) TRƯỚC để chúng nằm dưới
+            let alternatives = parent.navEngine.alternativeRoutes
+            for alt in alternatives where !alt.coordinates.isEmpty {
+                let poly = NavRoutePolyline(coordinates: alt.coordinates, count: alt.coordinates.count)
+                poly.routeId = alt.id
+                poly.isActiveRoute = false
+                poly.routeName = alt.routeName
+                poly.timeDiffString = alt.timeDiffString
+                alternativePolylines.append(poly)
+                mapView.addOverlay(poly, level: .aboveLabels)
+            }
             
-            let polyline = MKPolyline(coordinates: r.coordinates, count: r.coordinates.count)
-            currentPolyline = polyline
-            
-            // QUAN TRỌNG: Thêm polyline ở level .aboveLabels để đảm bảo luôn nằm TRÊN ngói OSM!
-            mapView.addOverlay(polyline, level: .aboveLabels)
+            // 2. Thêm tuyến chính đang chọn (Active Route) SAU để nằm trên cùng
+            if let r = newRoute, !r.coordinates.isEmpty {
+                let poly = NavRoutePolyline(coordinates: r.coordinates, count: r.coordinates.count)
+                poly.routeId = r.id
+                poly.isActiveRoute = true
+                poly.routeName = r.routeName
+                poly.timeDiffString = r.timeDiffString
+                activePolyline = poly
+                mapView.addOverlay(poly, level: .aboveLabels)
+            }
             
             // Ghim Điểm A (Xanh lá) & Điểm B (Đỏ)
             if let a = coordA {
@@ -1586,12 +1835,14 @@ public struct OSMMapView: UIViewRepresentable {
                 mapView.addAnnotation(annB)
             }
             
-            // Chỉ tự động căn chỉnh toàn bộ lộ trình vừa khít màn hình khi đang xem trước lộ trình
-            // Khi đang lái xe dẫn đường thực tế (isNavigating == true), camera giữ nguyên chế độ bám theo xe (Heading Tracking)
-            if !self.parent.navEngine.isNavigating {
-                let rect = polyline.boundingMapRect
-                let padding = UIEdgeInsets(top: 160, left: 50, bottom: 220, right: 50)
-                mapView.setVisibleMapRect(rect, edgePadding: padding, animated: true)
+            // Căn chỉnh bao quát lộ trình nếu đang ở màn hình xem trước lộ trình
+            if !self.parent.navEngine.isNavigating, let poly = activePolyline {
+                var unionRect = poly.boundingMapRect
+                for altPoly in alternativePolylines {
+                    unionRect = unionRect.union(altPoly.boundingMapRect)
+                }
+                let padding = UIEdgeInsets(top: 160, left: 50, bottom: 250, right: 50)
+                mapView.setVisibleMapRect(unionRect, edgePadding: padding, animated: true)
             }
         }
     }

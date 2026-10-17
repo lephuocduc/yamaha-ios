@@ -244,6 +244,7 @@ public final class TFTStreamRenderer: ObservableObject {
     // Lưu thông số gần nhất để khi bấm Zoom có thể render lại tức thì
     private var lastRenderedLocation: CLLocation?
     private var lastRenderedRoute: OSMRoute?
+    private var lastRenderedAlternativeRoutes: [OSMRoute] = []
     private var lastRenderedInstruction: NavigationInstruction?
     private var lastRenderedSpeedKmh: Double = 0.0
     private var lastRenderedTelemetry: BikeTelemetry = BikeTelemetry()
@@ -325,6 +326,7 @@ public final class TFTStreamRenderer: ObservableObject {
             self.renderLiveMapFrame(
                 location: nav.currentLocation,
                 activeRoute: nav.activeRoute,
+                alternativeRoutes: nav.alternativeRoutes,
                 instruction: nav.currentInstruction,
                 speedKmh: displaySpeed,
                 telemetry: ccu.telemetry,
@@ -372,6 +374,7 @@ public final class TFTStreamRenderer: ObservableObject {
         renderLiveMapFrame(
             location: loc,
             activeRoute: lastRenderedRoute,
+            alternativeRoutes: lastRenderedAlternativeRoutes,
             instruction: inst,
             speedKmh: lastRenderedSpeedKmh,
             telemetry: lastRenderedTelemetry,
@@ -388,6 +391,7 @@ public final class TFTStreamRenderer: ObservableObject {
     public func renderLiveMapFrame(
         location: CLLocation?,
         activeRoute: OSMRoute?,
+        alternativeRoutes: [OSMRoute] = [],
         instruction: NavigationInstruction,
         speedKmh: Double,
         telemetry: BikeTelemetry,
@@ -396,6 +400,7 @@ public final class TFTStreamRenderer: ObservableObject {
     ) {
         self.lastRenderedLocation = location
         self.lastRenderedRoute = activeRoute
+        self.lastRenderedAlternativeRoutes = alternativeRoutes
         self.lastRenderedInstruction = instruction
         self.lastRenderedSpeedKmh = speedKmh
         self.lastRenderedTelemetry = telemetry
@@ -503,8 +508,13 @@ public final class TFTStreamRenderer: ObservableObject {
             ctx.restoreGState()
             
             // 3. Vẽ lộ trình OpenStreetMap (Valhalla / OSM Polyline) trong cùng hệ tọa độ ngói OSM
+            // Vẽ các tuyến đường thay thế (Alternative) trước bằng màu xám khói
+            for alt in alternativeRoutes where alt.coordinates.count > 1 {
+                self.drawRoutePolyline(alt, in: ctx, zoom: zoom, originX: originWorldX, originY: originWorldY, isAlternative: true)
+            }
+            // Vẽ tuyến đường chính đang chọn (Active) sau bằng màu xanh Neon Cyan
             if let route = activeRoute, route.coordinates.count > 1 {
-                self.drawRoutePolyline(route, in: ctx, zoom: zoom, originX: originWorldX, originY: originWorldY)
+                self.drawRoutePolyline(route, in: ctx, zoom: zoom, originX: originWorldX, originY: originWorldY, isAlternative: false)
             }
             
             ctx.restoreGState()
@@ -535,7 +545,7 @@ public final class TFTStreamRenderer: ObservableObject {
     }
     
     // MARK: - Vẽ tuyến đường lộ trình trên mặt phẳng ngói OpenStreetMap (Đậm nét, tương phản cao, dễ nhìn ngoài trời nắng)
-    private func drawRoutePolyline(_ route: OSMRoute, in ctx: CGContext, zoom: Int, originX: Double, originY: Double) {
+    private func drawRoutePolyline(_ route: OSMRoute, in ctx: CGContext, zoom: Int, originX: Double, originY: Double, isAlternative: Bool = false) {
         let n = pow(2.0, Double(zoom))
         let path = UIBezierPath()
         var hasStarted = false
@@ -564,23 +574,36 @@ public final class TFTStreamRenderer: ObservableObject {
             ctx.setLineCap(.round)
             ctx.setLineJoin(.round)
             
-            // Lớp 1: Viền đen cực dày 18pt tạo độ tương phản tách biệt hoàn toàn với mọi loại nền bản đồ ngoài trời
-            ctx.addPath(cgPath)
-            ctx.setStrokeColor(UIColor(red: 0.0, green: 0.04, blue: 0.12, alpha: 1.0).cgColor)
-            ctx.setLineWidth(18.0)
-            ctx.strokePath()
-            
-            // Lớp 2: Thân lộ trình màu xanh Yamaha Racing Neon Cyan 12.0pt (Sáng rực rỡ dưới nắng)
-            ctx.addPath(cgPath)
-            ctx.setStrokeColor(UIColor(red: 0.0, green: 0.88, blue: 1.0, alpha: 1.0).cgColor)
-            ctx.setLineWidth(12.0)
-            ctx.strokePath()
-            
-            // Lớp 3: Sọc lõi trắng phản quang 4.5pt ở giữa
-            ctx.addPath(cgPath)
-            ctx.setStrokeColor(UIColor.white.cgColor)
-            ctx.setLineWidth(4.5)
-            ctx.strokePath()
+            if isAlternative {
+                // Tuyến gợi ý thay thế trên TFT: Viền đen + Thân xám bạc (slate gray)
+                ctx.addPath(cgPath)
+                ctx.setStrokeColor(UIColor(red: 0.05, green: 0.08, blue: 0.12, alpha: 0.8).cgColor)
+                ctx.setLineWidth(12.0)
+                ctx.strokePath()
+                
+                ctx.addPath(cgPath)
+                ctx.setStrokeColor(UIColor(red: 0.50, green: 0.60, blue: 0.70, alpha: 0.85).cgColor)
+                ctx.setLineWidth(7.0)
+                ctx.strokePath()
+            } else {
+                // Lớp 1: Viền đen cực dày 18pt tạo độ tương phản tách biệt hoàn toàn với mọi loại nền bản đồ ngoài trời
+                ctx.addPath(cgPath)
+                ctx.setStrokeColor(UIColor(red: 0.0, green: 0.04, blue: 0.12, alpha: 1.0).cgColor)
+                ctx.setLineWidth(18.0)
+                ctx.strokePath()
+                
+                // Lớp 2: Thân lộ trình màu xanh Yamaha Racing Neon Cyan 12.0pt (Sáng rực rỡ dưới nắng)
+                ctx.addPath(cgPath)
+                ctx.setStrokeColor(UIColor(red: 0.0, green: 0.88, blue: 1.0, alpha: 1.0).cgColor)
+                ctx.setLineWidth(12.0)
+                ctx.strokePath()
+                
+                // Lớp 3: Sọc lõi trắng phản quang 4.5pt ở giữa
+                ctx.addPath(cgPath)
+                ctx.setStrokeColor(UIColor.white.cgColor)
+                ctx.setLineWidth(4.5)
+                ctx.strokePath()
+            }
         }
     }
     
