@@ -3,21 +3,14 @@ import SwiftUI
 public struct SettingsView: View {
     @ObservedObject var ccuManager: YamahaCCUManager
     
-    @AppStorage("selectedBikeModel") private var selectedBikeModel = "Yamaha XMAX 300"
-    @AppStorage("mapProvider") private var mapProvider = "OpenStreetMap"
-    @AppStorage("googleMapsApiKey") private var googleMapsApiKey = ""
-    @AppStorage("autoReconnect") private var autoReconnect = true
+    @AppStorage("osmTileStyle") private var osmTileStyle = "OSM Chuẩn (Sáng)"
+    @AppStorage("osrmServerUrl") private var osrmServerUrl = "https://router.project-osrm.org"
     
-    let bikeModels = [
-        "Yamaha XMAX 300",
-        "Yamaha NMAX 155",
-        "Yamaha YZF-R9",
-        "Yamaha MT-09 / SP",
-        "Yamaha XSR900 GP",
-        "Xe hỗ trợ Garmin StreetCross khác"
+    let osmTileStyles = [
+        "OSM Chuẩn (Sáng)",
+        "OSM Carto Dark (Tối cho xe)",
+        "OSM Voyager (Sắc nét)"
     ]
-    
-    let mapProviders = ["OpenStreetMap (Miễn phí)", "Google Maps SDK"]
     
     public init(ccuManager: YamahaCCUManager) {
         self.ccuManager = ccuManager
@@ -36,16 +29,38 @@ public struct SettingsView: View {
                     Toggle("Tự động kết nối khi bật xe", isOn: $autoReconnect)
                 }
                 
-                Section(header: Text("Cấu hình Bản đồ")) {
-                    Picker("Nhà cung cấp bản đồ", selection: $mapProvider) {
-                        ForEach(mapProviders, id: \.self) { provider in
-                            Text(provider).tag(provider)
+                Section(header: Text("Bản đồ & Chỉ đường OpenStreetMap (Mã nguồn mở)")) {
+                    Picker("Giao diện ngói bản đồ", selection: $osmTileStyle) {
+                        ForEach(osmTileStyles, id: \.self) { style in
+                            Text(style).tag(style)
+                        }
+                    }
+                    .onChange(of: osmTileStyle) { val in
+                        if val.contains("Dark") {
+                            OSMTileEngine.shared.tileUrlTemplate = "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+                        } else if val.contains("Voyager") {
+                            OSMTileEngine.shared.tileUrlTemplate = "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+                        } else {
+                            OSMTileEngine.shared.tileUrlTemplate = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
                         }
                     }
                     
-                    if mapProvider.contains("Google") {
-                        SecureField("Google Maps API Key", text: $googleMapsApiKey)
+                    HStack {
+                        Text("Máy chủ dẫn đường")
+                        Spacer()
+                        Text("OSRM (Open Source)")
+                            .foregroundColor(.secondary)
                     }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("✓ Không sử dụng Google Maps hay Apple Maps.")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                        Text("✓ Dữ liệu bản đồ & chỉ đường Turn-by-Turn 100% từ cộng đồng OpenStreetMap (ODbL).")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .padding(.vertical, 2)
                 }
                 
                 Section(header: Text("Thông tin thiết bị kết nối")) {

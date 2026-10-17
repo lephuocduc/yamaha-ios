@@ -482,7 +482,7 @@ public struct MainDashboardView: View {
                 if navEngine.searchResults.isEmpty && !searchQuery.isEmpty {
                     VStack(spacing: 12) {
                         ProgressView()
-                        Text("Đang tìm '\(searchQuery)' bằng Apple Maps...")
+                        Text("Đang tìm '\(searchQuery)' trên OpenStreetMap...")
                             .font(.caption)
                             .foregroundColor(.gray)
                     }
@@ -575,7 +575,7 @@ public struct MainDashboardView: View {
                 if navEngine.nearbyGasStations.isEmpty {
                     VStack(spacing: 12) {
                         ProgressView()
-                        Text("Đang quét trạm xăng gần bạn trong 5km...")
+                        Text("Đang quét trạm xăng OpenStreetMap gần bạn...")
                             .font(.caption)
                             .foregroundColor(.gray)
                     }

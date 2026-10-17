@@ -150,3 +150,37 @@ public struct NavigationInstruction {
     
     public init() {}
 }
+
+// MARK: - Bước điều hướng OpenStreetMap (OSRM Turn-by-Turn Step)
+public struct NavigationStep: Identifiable {
+    public let id = UUID()
+    public let instruction: String
+    public let distanceMeters: Int
+    public let direction: NavigationDirection
+    public let coordinate: CLLocationCoordinate2D
+    public let roadName: String
+    
+    public init(instruction: String, distanceMeters: Int, direction: NavigationDirection, coordinate: CLLocationCoordinate2D, roadName: String) {
+        self.instruction = instruction
+        self.distanceMeters = distanceMeters
+        self.direction = direction
+        self.coordinate = coordinate
+        self.roadName = roadName
+    }
+}
+
+// MARK: - Tuyến đường lộ trình OpenStreetMap (OSRM Route)
+public struct OSMRoute {
+    public let coordinates: [CLLocationCoordinate2D]
+    public let distanceMeters: Double
+    public let durationSeconds: Double
+    public let steps: [NavigationStep]
+    
+    public init(coordinates: [CLLocationCoordinate2D], distanceMeters: Double, durationSeconds: Double, steps: [NavigationStep]) {
+        self.coordinates = coordinates
+        self.distanceMeters = distanceMeters
+        self.durationSeconds = durationSeconds
+        self.steps = steps
+    }
+}
+

@@ -7,10 +7,6 @@ public struct LiveNavigationView: View {
     @ObservedObject var streamRenderer: TFTStreamRenderer
     
     @State private var trackingMode: MapUserTrackingMode = .follow
-    @State private var region = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 10.7769, longitude: 106.7009), // TP.HCM
-        span: MKCoordinateSpan(latitudeDelta: 0.008, longitudeDelta: 0.008)
-    )
     @State private var showSearchSheet = false
     @State private var searchQuery = ""
     @State private var showTFTMiniPreview = true
@@ -23,8 +19,8 @@ public struct LiveNavigationView: View {
     
     public var body: some View {
         ZStack {
-            // 1. Bản đồ vệ tinh & đường phố tương tác (chỉ tràn cạnh trên để không che TabBar dưới)
-            Map(coordinateRegion: $region, showsUserLocation: true, userTrackingMode: $trackingMode)
+            // 1. Bản đồ OpenStreetMap tương tác (hoàn toàn mã nguồn mở, không dùng Apple/Google)
+            OSMMapView(navEngine: navEngine, trackingMode: $trackingMode, route: navEngine.activeRoute)
                 .ignoresSafeArea(edges: .top)
             
             VStack {
@@ -73,14 +69,21 @@ public struct LiveNavigationView: View {
                     }
                 }
                 .padding(.horizontal)
-                .padding(.bottom, 12)
-            }
-        }
-        .onReceive(navEngine.$currentLocation) { loc in
-            if let loc = loc {
-                withAnimation {
-                    region.center = loc.coordinate
+                .padding(.bottom, 6)
+                
+                // 4. Nhãn bản quyền OpenStreetMap bắt buộc
+                HStack {
+                    Text("Bản đồ © OpenStreetMap contributors • Lộ trình OSRM")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.75))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.black.opacity(0.65))
+                        .cornerRadius(6)
+                    Spacer()
                 }
+                .padding(.horizontal)
+                .padding(.bottom, 6)
             }
         }
         .sheet(isPresented: $showSearchSheet) {
@@ -94,11 +97,14 @@ public struct LiveNavigationView: View {
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(.cyan)
-                Text("Tìm địa điểm, quán ăn, cây xăng...")
+                Text("Tìm trên OpenStreetMap (quán ăn, trạm xăng...)")
+                    .font(.subheadline)
                     .foregroundColor(.gray)
                 Spacer()
-                Image(systemName: "mic.fill")
-                    .foregroundColor(.gray)
+                if navEngine.isCalculatingRoute {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                }
             }
             .padding(14)
             .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.95))
@@ -151,11 +157,6 @@ public struct LiveNavigationView: View {
             // Nút định vị vị trí hiện tại
             Button(action: {
                 trackingMode = .follow
-                if let loc = navEngine.currentLocation {
-                    withAnimation {
-                        region.center = loc.coordinate
-                    }
-                }
             }) {
                 Image(systemName: "location.north.line.fill")
                     .font(.title3)
@@ -168,10 +169,6 @@ public struct LiveNavigationView: View {
             
             // Phóng to (+)
             Button(action: {
-                withAnimation {
-                    region.span.latitudeDelta = max(0.001, region.span.latitudeDelta * 0.5)
-                    region.span.longitudeDelta = max(0.001, region.span.longitudeDelta * 0.5)
-                }
                 streamRenderer.zoomIn()
             }) {
                 Image(systemName: "plus")
@@ -185,10 +182,6 @@ public struct LiveNavigationView: View {
             
             // Thu nhỏ (-)
             Button(action: {
-                withAnimation {
-                    region.span.latitudeDelta = min(0.05, region.span.latitudeDelta * 2.0)
-                    region.span.longitudeDelta = min(0.05, region.span.longitudeDelta * 2.0)
-                }
                 streamRenderer.zoomOut()
             }) {
                 Image(systemName: "minus")
@@ -215,13 +208,13 @@ public struct LiveNavigationView: View {
         }
     }
     
-    // MARK: - Sheet tìm kiếm
+    // MARK: - Sheet tìm kiếm OpenStreetMap
     private var searchSheet: some View {
         NavigationView {
             VStack {
                 HStack {
                     Image(systemName: "magnifyingglass").foregroundColor(.cyan)
-                    TextField("Nhập địa điểm...", text: $searchQuery)
+                    TextField("Tìm địa điểm OpenStreetMap...", text: $searchQuery)
                         .submitLabel(.search)
                         .onSubmit {
                             navEngine.searchPlaces(query: searchQuery)
@@ -229,6 +222,9 @@ public struct LiveNavigationView: View {
                         .onChange(of: searchQuery) { val in
                             navEngine.searchPlaces(query: val)
                         }
+                    if navEngine.isSearching {
+                        ProgressView().scaleEffect(0.8)
+                    }
                 }
                 .padding()
                 .background(Color(white: 0.1))
@@ -251,7 +247,7 @@ public struct LiveNavigationView: View {
                     }
                 }
             }
-            .navigationTitle("Tìm điểm đến")
+            .navigationTitle("Tìm điểm đến OSM")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -261,3 +257,92 @@ public struct LiveNavigationView: View {
         }
     }
 }
+
+// MARK: - View Bản đồ OpenStreetMap tương tác (Thay thế hoàn toàn Apple Maps bằng OpenStreetMap)
+public struct OSMMapView: UIViewRepresentable {
+    @ObservedObject var navEngine: NavigationEngine
+    @Binding var trackingMode: MapUserTrackingMode
+    var route: OSMRoute?
+    
+    public init(navEngine: NavigationEngine, trackingMode: Binding<MapUserTrackingMode>, route: OSMRoute?) {
+        self.navEngine = navEngine
+        self._trackingMode = trackingMode
+        self.route = route
+    }
+    
+    public func makeUIView(context: Context) -> MKMapView {
+        let mapView = MKMapView()
+        mapView.delegate = context.coordinator
+        mapView.showsUserLocation = true
+        mapView.showsCompass = true
+        mapView.showsScale = true
+        
+        // Cấu hình ngói bản đồ OpenStreetMap thay thế hoàn toàn bản đồ mặc định của Apple
+        let osmUrl = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+        let osmOverlay = MKTileOverlay(urlTemplate: osmUrl)
+        osmOverlay.canReplaceMapContent = true // TRIỆT TIÊU TOÀN BỘ BẢN ĐỒ APPLE, CHỈ DÙNG OPENSTREETMAP
+        osmOverlay.maximumZ = 19
+        mapView.addOverlay(osmOverlay, level: .aboveLabels)
+        
+        if let loc = navEngine.currentLocation {
+            let region = MKCoordinateRegion(center: loc.coordinate, latitudinalMeters: 1000, longitudinalMeters: 1000)
+            mapView.setRegion(region, animated: false)
+        }
+        
+        return mapView
+    }
+    
+    public func updateUIView(_ uiView: MKMapView, context: Context) {
+        context.coordinator.updateRoute(on: uiView, newRoute: route)
+        
+        if trackingMode == .follow, let loc = navEngine.currentLocation {
+            let center = uiView.centerCoordinate
+            let dLat = abs(center.latitude - loc.coordinate.latitude)
+            let dLon = abs(center.longitude - loc.coordinate.longitude)
+            if dLat > 0.0005 || dLon > 0.0005 {
+                uiView.setCenter(loc.coordinate, animated: true)
+            }
+        }
+    }
+    
+    public func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    public class Coordinator: NSObject, MKMapViewDelegate {
+        var parent: OSMMapView
+        var currentPolyline: MKPolyline?
+        
+        init(_ parent: OSMMapView) {
+            self.parent = parent
+        }
+        
+        public func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let tileOverlay = overlay as? MKTileOverlay {
+                return MKTileOverlayRenderer(tileOverlay: tileOverlay)
+            }
+            if let polyline = overlay as? MKPolyline {
+                let renderer = MKPolylineRenderer(polyline: polyline)
+                renderer.strokeColor = UIColor(red: 0.0, green: 0.75, blue: 1.0, alpha: 0.95)
+                renderer.lineWidth = 6
+                renderer.lineCap = .round
+                renderer.lineJoin = .round
+                return renderer
+            }
+            return MKOverlayRenderer(overlay: overlay)
+        }
+        
+        public func updateRoute(on mapView: MKMapView, newRoute: OSMRoute?) {
+            if let old = currentPolyline {
+                mapView.removeOverlay(old)
+                currentPolyline = nil
+            }
+            if let r = newRoute, !r.coordinates.isEmpty {
+                let polyline = MKPolyline(coordinates: r.coordinates, count: r.coordinates.count)
+                currentPolyline = polyline
+                mapView.addOverlay(polyline, level: .aboveRoads)
+            }
+        }
+    }
+}
+

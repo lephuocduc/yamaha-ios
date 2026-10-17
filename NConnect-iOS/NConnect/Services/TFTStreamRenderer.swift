@@ -1,11 +1,80 @@
 import Foundation
 import UIKit
 import CoreGraphics
-import MapKit
 import CoreLocation
 import Combine
 
-// MARK: - Renderer tạo khung hình Bản Đồ thực tế (Map View) cho màn hình TFT xe máy Yamaha
+// MARK: - Trình nạp và lưu trữ ngói bản đồ OpenStreetMap (OSM Tile Engine)
+public final class OSMTileEngine {
+    public static let shared = OSMTileEngine()
+    
+    private let memoryCache = NSCache<NSString, UIImage>()
+    private let fileManager = FileManager.default
+    private let cacheDirectory: URL
+    private let session: URLSession
+    
+    // Mẫu URL ngói OpenStreetMap (Mặc định ngói chuẩn OSM)
+    public var tileUrlTemplate: String = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+    
+    public init() {
+        memoryCache.countLimit = 250 // Lưu tối đa 250 ngói trong bộ nhớ RAM
+        let paths = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)
+        cacheDirectory = paths[0].appendingPathComponent("OSMTiles")
+        try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 8
+        config.requestCachePolicy = .returnCacheDataElseLoad
+        self.session = URLSession(configuration: config)
+    }
+    
+    public func getCachedTile(x: Int, y: Int, z: Int) -> UIImage? {
+        let key = "\(z)_\(x)_\(y)" as NSString
+        if let cached = memoryCache.object(forKey: key) {
+            return cached
+        }
+        let fileURL = cacheDirectory.appendingPathComponent("\(z)_\(x)_\(y).png")
+        if let data = try? Data(contentsOf: fileURL), let img = UIImage(data: data) {
+            memoryCache.setObject(img, forKey: key)
+            return img
+        }
+        return nil
+    }
+    
+    public func fetchTile(x: Int, y: Int, z: Int, completion: @escaping (UIImage?) -> Void) {
+        if let cached = getCachedTile(x: x, y: y, z: z) {
+            completion(cached)
+            return
+        }
+        
+        let urlStr = tileUrlTemplate
+            .replacingOccurrences(of: "{z}", with: "\(z)")
+            .replacingOccurrences(of: "{x}", with: "\(x)")
+            .replacingOccurrences(of: "{y}", with: "\(y)")
+        
+        guard let url = URL(string: urlStr) else {
+            completion(nil)
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.setValue("NConnect-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
+        
+        session.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self, let data = data, let img = UIImage(data: data) else {
+                completion(nil)
+                return
+            }
+            let key = "\(z)_\(x)_\(y)" as NSString
+            self.memoryCache.setObject(img, forKey: key)
+            let fileURL = self.cacheDirectory.appendingPathComponent("\(z)_\(x)_\(y).png")
+            try? data.write(to: fileURL)
+            completion(img)
+        }.resume()
+    }
+}
+
+// MARK: - Renderer tạo khung hình Bản Đồ OpenStreetMap cho màn hình TFT xe máy Yamaha
 public final class TFTStreamRenderer: ObservableObject {
     
     // Kích thước chuẩn cho khung hình dẫn đường xe máy Yamaha (NMAX / XMAX: 480 x 234 px; MT-07/09: 480 x 240 px)
@@ -14,8 +83,14 @@ public final class TFTStreamRenderer: ObservableObject {
     
     @Published public var lastFrameImage: UIImage?
     public static let zoomLevels: [CLLocationDistance] = [200.0, 400.0, 800.0, 1600.0, 3000.0]
-    @Published public var currentZoomIndex: Int = 1 // Mặc định 400m
+    public static let osmZooms: [Int] = [18, 17, 16, 15, 14]
+    
+    @Published public var currentZoomIndex: Int = 1 // Mặc định 400m (OSM Zoom 17)
     @Published public var mapRadiusMeters: CLLocationDistance = 400.0
+    
+    public var currentOsmZoom: Int {
+        Self.osmZooms[min(max(0, currentZoomIndex), Self.osmZooms.count - 1)]
+    }
     
     public var zoomDescription: String {
         switch currentZoomIndex {
@@ -27,13 +102,6 @@ public final class TFTStreamRenderer: ObservableObject {
         }
     }
     
-    private var isSnapshotting: Bool = false
-    private var activeSnapshotter: MKMapSnapshotter?
-    private var cachedMapImage: UIImage?
-    private var lastSnapshotCoord: CLLocationCoordinate2D?
-    private var lastSnapshotHeading: CLLocationDirection = 0.0
-    private var lastSnapshotTime: Date = .distantPast
-    
     // Quản lý tác vụ chạy ngầm khi màn hình tắt (Background Task Token)
     private var bgTaskID: UIBackgroundTaskIdentifier = .invalid
     private var streamSourceTimer: DispatchSourceTimer?
@@ -41,7 +109,7 @@ public final class TFTStreamRenderer: ObservableObject {
     
     // Lưu thông số gần nhất để khi bấm Zoom có thể render lại tức thì
     private var lastRenderedLocation: CLLocation?
-    private var lastRenderedRoute: MKRoute?
+    private var lastRenderedRoute: OSMRoute?
     private var lastRenderedInstruction: NavigationInstruction?
     private var lastRenderedSpeedKmh: Double = 0.0
     private var lastRenderedTelemetry: BikeTelemetry = BikeTelemetry()
@@ -53,8 +121,7 @@ public final class TFTStreamRenderer: ObservableObject {
     
     private func beginBgTask() {
         endBgTask()
-        bgTaskID = UIApplication.shared.beginBackgroundTask(withName: "TFTMapSnapshot") { [weak self] in
-            self?.activeSnapshotter?.cancel()
+        bgTaskID = UIApplication.shared.beginBackgroundTask(withName: "TFTOSMStream") { [weak self] in
             self?.endBgTask()
         }
     }
@@ -113,10 +180,6 @@ public final class TFTStreamRenderer: ObservableObject {
             return
         }
         mapRadiusMeters = Self.zoomLevels[currentZoomIndex]
-        cachedMapImage = nil
-        lastSnapshotCoord = nil
-        lastSnapshotHeading = 0.0
-        lastSnapshotTime = .distantPast
         triggerImmediateReRender()
     }
     
@@ -127,10 +190,6 @@ public final class TFTStreamRenderer: ObservableObject {
             return
         }
         mapRadiusMeters = Self.zoomLevels[currentZoomIndex]
-        cachedMapImage = nil
-        lastSnapshotCoord = nil
-        lastSnapshotHeading = 0.0
-        lastSnapshotTime = .distantPast
         triggerImmediateReRender()
     }
     
@@ -146,10 +205,10 @@ public final class TFTStreamRenderer: ObservableObject {
         ) { _ in }
     }
     
-    // MARK: - Chụp và render khung hình bản đồ động theo vị trí thực tế của xe
+    // MARK: - Render khung hình bản đồ OpenStreetMap theo thời gian thực cho màn hình TFT
     public func renderLiveMapFrame(
         location: CLLocation?,
-        activeRoute: MKRoute?,
+        activeRoute: OSMRoute?,
         instruction: NavigationInstruction,
         speedKmh: Double,
         telemetry: BikeTelemetry,
@@ -162,10 +221,9 @@ public final class TFTStreamRenderer: ObservableObject {
         self.lastRenderedTelemetry = telemetry
         
         guard let loc = location else {
-            // Nếu chưa có vị trí GPS, vẽ khung khởi tạo bản đồ
             let placeholderData = renderFallbackMapFrame(
-                title: "Đang tải bản đồ...",
-                subtitle: "Đang lấy tín hiệu GPS từ iPhone",
+                title: "OpenStreetMap",
+                subtitle: "Đang lấy tín hiệu GPS từ iPhone...",
                 speedKmh: speedKmh,
                 telemetry: telemetry
             )
@@ -173,141 +231,91 @@ public final class TFTStreamRenderer: ObservableObject {
             return
         }
         
-        let now = Date()
-        let dist = lastSnapshotCoord != nil ? loc.distance(from: CLLocation(latitude: lastSnapshotCoord!.latitude, longitude: lastSnapshotCoord!.longitude)) : 999.0
-        let currentHeading = loc.course >= 0 ? loc.course : 0.0
-        let headingDiff = abs(currentHeading - lastSnapshotHeading)
-        let timeSinceLast = now.timeIntervalSince(lastSnapshotTime)
+        let zoom = self.currentOsmZoom
+        let n = pow(2.0, Double(zoom))
+        let lon = loc.coordinate.longitude
+        let lat = loc.coordinate.latitude
         
-        // Điều kiện chụp khung hình bản đồ nền mới:
-        // 1. Chưa có ảnh ban đầu
-        // 2. Xe đã di chuyển hơn 25 mét hoặc rẽ góc lớn hơn 30 độ
-        // 3. Hoặc đã hơn 4 giây và xe có di chuyển
-        let shouldTakeNewSnapshot = (cachedMapImage == nil) ||
-            (dist > 25.0) ||
-            (headingDiff > 30.0 && timeSinceLast >= 2.0) ||
-            (timeSinceLast >= 4.0 && dist > 10.0)
+        let worldX = (lon + 180.0) / 360.0 * n * 256.0
+        let latRad = lat * .pi / 180.0
+        let worldY = (1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / .pi) / 2.0 * n * 256.0
         
-        if shouldTakeNewSnapshot && !isSnapshotting {
-            isSnapshotting = true
-            
-            let padding: CGFloat = 80.0
-            let snapSize = CGSize(width: CGFloat(targetWidth) + padding, height: CGFloat(targetHeight) + padding)
-            
-            let options = MKMapSnapshotter.Options()
-            options.size = snapSize
-            options.camera = MKMapCamera(
-                lookingAtCenter: loc.coordinate,
-                fromDistance: mapRadiusMeters * 2.2,
-                pitch: 0,
-                heading: currentHeading
-            )
-            options.mapType = .standard
-            options.traitCollection = UITraitCollection(userInterfaceStyle: .dark)
-            
-            let snapshotter = MKMapSnapshotter(options: options)
-            self.activeSnapshotter = snapshotter // Giữ strong reference để ARC không hủy tác vụ chụp ngầm
-            
-            self.beginBgTask()
-            snapshotter.start(with: .main) { [weak self] snapshot, error in
-                guard let self = self else { return }
-                defer { self.endBgTask() }
-                self.isSnapshotting = false
-                self.activeSnapshotter = nil
-                
-                if let error = error {
-                    print("[TFTStreamRenderer] Lỗi chụp bản đồ: \(error.localizedDescription)")
-                }
-                
-                if let snap = snapshot {
-                    self.cachedMapImage = snap.image
-                    self.lastSnapshotCoord = loc.coordinate
-                    self.lastSnapshotHeading = currentHeading
-                    self.lastSnapshotTime = Date()
-                }
-                
-                let frameData = self.compositeMapWithHUD(
-                    mapImage: self.cachedMapImage,
-                    location: loc,
-                    activeRoute: activeRoute,
-                    instruction: instruction,
-                    speedKmh: speedKmh,
-                    telemetry: telemetry
-                )
-                completion(frameData)
-            }
-        } else {
-            // Tái sử dụng bản đồ đã nạp và áp dụng dịch chuyển pixel theo GPS thời gian thực (không độ trễ)
-            let frameData = compositeMapWithHUD(
-                mapImage: cachedMapImage,
-                location: loc,
-                activeRoute: activeRoute,
-                instruction: instruction,
-                speedKmh: speedKmh,
-                telemetry: telemetry
-            )
-            completion(frameData)
-        }
-    }
-    
-    // MARK: - Ghép lớp bản đồ + Đường đi + Mũi tên xe + Bảng đồng hồ HUD
-    private func compositeMapWithHUD(
-        mapImage: UIImage?,
-        location: CLLocation,
-        activeRoute: MKRoute?,
-        instruction: NavigationInstruction,
-        speedKmh: Double,
-        telemetry: BikeTelemetry
-    ) -> Data? {
+        let centerTileX = Int(floor(worldX / 256.0))
+        let centerTileY = Int(floor(worldY / 256.0))
+        
+        let originWorldX = Double((centerTileX - 1) * 256)
+        let originWorldY = Double((centerTileY - 1) * 256)
+        
+        let bikeCanvasX = CGFloat(worldX - originWorldX)
+        let bikeCanvasY = CGFloat(worldY - originWorldY)
+        
+        // Kích thước màn hình TFT đích
         let size = CGSize(width: targetWidth, height: targetHeight)
+        
+        // Vẽ toàn bộ khung hình trực tiếp bằng CoreGraphics
         UIGraphicsBeginImageContextWithOptions(size, true, 1.0)
         guard let ctx = UIGraphicsGetCurrentContext() else {
             UIGraphicsEndImageContext()
-            return nil
+            completion(nil)
+            return
         }
         
-        let padding: CGFloat = 80.0
-        let snapSize = CGSize(width: CGFloat(targetWidth) + padding, height: CGFloat(targetHeight) + padding)
+        // 1. Nền tối chống chói ban đêm cho màn hình xe
+        ctx.setFillColor(UIColor(red: 0.08, green: 0.10, blue: 0.14, alpha: 1.0).cgColor)
+        ctx.fill(CGRect(origin: .zero, size: size))
         
-        // 1. Nền bản đồ thực tế với tính toán dịch chuyển pixel liên tục theo GPS
-        if let map = mapImage {
-            var screenOffsetX: CGFloat = 0.0
-            var screenOffsetY: CGFloat = 0.0
-            
-            if let snapCoord = lastSnapshotCoord {
-                let dLat = (location.coordinate.latitude - snapCoord.latitude) * 111_000.0 // mét về hướng Bắc
-                let dLon = (location.coordinate.longitude - snapCoord.longitude) * 111_000.0 * cos(snapCoord.latitude * .pi / 180.0) // mét về hướng Đông
+        let heading = loc.course >= 0 ? loc.course : 0.0
+        let headingRad = CGFloat(heading * .pi / 180.0)
+        let centerPt = CGPoint(x: CGFloat(targetWidth) / 2.0, y: CGFloat(targetHeight) / 2.0)
+        
+        ctx.saveGState()
+        // Xoay hướng di chuyển của xe luôn hướng lên trên màn hình TFT (Heading-up)
+        ctx.translateBy(x: centerPt.x, y: centerPt.y)
+        ctx.rotate(by: -headingRad)
+        ctx.translateBy(x: -bikeCanvasX, y: -bikeCanvasY)
+        
+        // 2. Vẽ 9 ngói OpenStreetMap (3x3 grid) xung quanh vị trí xe
+        var needsTileReload = false
+        for dx in -1...1 {
+            for dy in -1...1 {
+                let tx = centerTileX + dx
+                let ty = centerTileY + dy
+                let destRect = CGRect(x: CGFloat(dx + 1) * 256.0, y: CGFloat(dy + 1) * 256.0, width: 256.0, height: 256.0)
                 
-                let rad = lastSnapshotHeading * .pi / 180.0
-                let forwardMeters = dLat * cos(rad) + dLon * sin(rad)
-                let rightMeters = dLon * cos(rad) - dLat * sin(rad)
-                
-                let ppm = Double(targetWidth) / (mapRadiusMeters * 2.2)
-                screenOffsetX = CGFloat(rightMeters * ppm)
-                screenOffsetY = CGFloat(-forwardMeters * ppm)
+                if let tile = OSMTileEngine.shared.getCachedTile(x: tx, y: ty, z: zoom) {
+                    tile.draw(in: destRect)
+                } else {
+                    // Nếu chưa có trong cache, vẽ placeholder và kích hoạt tải ngầm
+                    ctx.setFillColor(UIColor(red: 0.12, green: 0.14, blue: 0.18, alpha: 1.0).cgColor)
+                    ctx.fill(destRect)
+                    ctx.setStrokeColor(UIColor(white: 0.25, alpha: 0.4).cgColor)
+                    ctx.stroke(destRect)
+                    
+                    needsTileReload = true
+                    OSMTileEngine.shared.fetchTile(x: tx, y: ty, z: zoom) { [weak self] _ in
+                        DispatchQueue.main.async {
+                            self?.triggerImmediateReRender()
+                        }
+                    }
+                }
             }
-            
-            // Căn giữa ảnh đệm (-padding / 2) và trượt theo độ dời GPS tức thời
-            let originX = -padding / 2.0 - screenOffsetX
-            let originY = -padding / 2.0 - screenOffsetY
-            map.draw(in: CGRect(x: originX, y: originY, width: snapSize.width, height: snapSize.height))
-        } else {
-            ctx.setFillColor(UIColor(red: 0.10, green: 0.12, blue: 0.16, alpha: 1.0).cgColor)
-            ctx.fill(CGRect(origin: .zero, size: size))
-            drawGridLines(in: ctx, size: size)
         }
         
-        // 2. Vẽ tuyến đường dẫn đường (nếu có lộ trình) xoay đồng bộ theo hướng camera
-        if let route = activeRoute {
-            drawRoutePolyline(route, in: ctx, size: size, centerCoord: location.coordinate, heading: lastSnapshotHeading)
+        // 3. Vẽ lộ trình OpenStreetMap (OSRM Polyline) trong cùng hệ tọa độ ngói OSM
+        if let route = activeRoute, route.coordinates.count > 1 {
+            drawOSRMRoutePolyline(route, in: ctx, zoom: zoom, originX: originWorldX, originY: originWorldY)
         }
         
-        // 3. Vẽ biểu tượng vị trí xe máy ở giữa màn hình (hướng xe tương đối so với camera)
-        let relativeHeading = location.course >= 0 ? (location.course - lastSnapshotHeading) : 0.0
-        drawMotorcycleMarker(in: ctx, center: CGPoint(x: size.width / 2, y: size.height / 2), relativeHeading: relativeHeading)
+        ctx.restoreGState()
         
-        // 4. Lớp phủ thanh trạng thái phía trên (Top HUD: Tên đường hoặc Hướng rẽ)
+        // 4. Vẽ biểu tượng xe máy trung tâm màn hình (Mũi tên xanh Cyan luôn tiến về phía trước)
+        drawMotorcycleMarker(in: ctx, center: centerPt)
+        
+        // 5. Thanh chỉ dẫn điều hướng Turn-by-Turn phía trên (khoảng cách + tên đường)
         drawTopNavigationBanner(in: ctx, size: size, instruction: instruction)
+        
+        // 6. Nhãn bản quyền bắt buộc của OpenStreetMap (nhỏ gọn, thanh lịch)
+        drawOSMAttribution(in: ctx, size: size)
         
         let finalImage = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()
@@ -316,25 +324,60 @@ public final class TFTStreamRenderer: ObservableObject {
             self.lastFrameImage = finalImage
         }
         
-        // Nén JPEG chất lượng cao (yêu cầu chuẩn giao thức Yamaha StreetCross > 2048 bytes)
-        return finalImage?.jpegData(compressionQuality: 0.85)
+        // Nén JPEG chất lượng cao cho giao thức Bluetooth Yamaha StreetCross
+        let jpegData = finalImage?.jpegData(compressionQuality: 0.85)
+        completion(jpegData)
+    }
+    
+    // MARK: - Vẽ tuyến đường OSRM trên mặt phẳng ngói OpenStreetMap
+    private func drawOSRMRoutePolyline(_ route: OSMRoute, in ctx: CGContext, zoom: Int, originX: Double, originY: Double) {
+        let n = pow(2.0, Double(zoom))
+        let path = UIBezierPath()
+        var hasStarted = false
+        
+        for coord in route.coordinates {
+            let ptWorldX = (coord.longitude + 180.0) / 360.0 * n * 256.0
+            let ptLatRad = coord.latitude * .pi / 180.0
+            let ptWorldY = (1.0 - log(tan(ptLatRad) + 1.0 / cos(ptLatRad)) / .pi) / 2.0 * n * 256.0
+            
+            let px = CGFloat(ptWorldX - originX)
+            let py = CGFloat(ptWorldY - originY)
+            
+            let pt = CGPoint(x: px, y: py)
+            if !hasStarted {
+                path.move(to: pt)
+                hasStarted = true
+            } else {
+                path.addLine(to: pt)
+            }
+        }
+        
+        if hasStarted {
+            // Lớp viền phát sáng màu xanh Yamaha Neon
+            ctx.setStrokeColor(UIColor(red: 0.0, green: 0.75, blue: 1.0, alpha: 0.9).cgColor)
+            ctx.setLineWidth(8.0)
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            path.stroke()
+            
+            // Lớp lõi màu trắng tinh tế
+            ctx.setStrokeColor(UIColor.white.withAlphaComponent(0.95).cgColor)
+            ctx.setLineWidth(3.5)
+            path.stroke()
+        }
     }
     
     // MARK: - Vẽ biểu tượng xe máy trung tâm
-    private func drawMotorcycleMarker(in ctx: CGContext, center: CGPoint, relativeHeading: CLLocationDirection) {
+    private func drawMotorcycleMarker(in ctx: CGContext, center: CGPoint) {
         ctx.saveGState()
         ctx.translateBy(x: center.x, y: center.y)
-        
-        // Xoay theo góc lệch tương đối của xe so với hướng bản đồ
-        let radians = CGFloat(relativeHeading * .pi / 180.0)
-        ctx.rotate(by: radians)
         
         // Vòng tròn hào quang phát sáng
         ctx.setFillColor(UIColor(red: 0.0, green: 0.6, blue: 1.0, alpha: 0.25).cgColor)
         ctx.fillEllipse(in: CGRect(x: -20, y: -20, width: 40, height: 40))
         
         // Vòng tròn viền xe
-        ctx.setFillColor(UIColor(red: 0.0, green: 0.8, blue: 1.0, alpha: 0.8).cgColor)
+        ctx.setFillColor(UIColor(red: 0.0, green: 0.8, blue: 1.0, alpha: 0.85).cgColor)
         ctx.fillEllipse(in: CGRect(x: -10, y: -10, width: 20, height: 20))
         
         // Mũi tên định hướng xe máy luôn chỉ hướng tiến lên
@@ -351,64 +394,8 @@ public final class TFTStreamRenderer: ObservableObject {
         ctx.restoreGState()
     }
     
-    // MARK: - Vẽ tuyến đường (Route Polyline) xoay đồng bộ theo camera
-    private func drawRoutePolyline(_ route: MKRoute, in ctx: CGContext, size: CGSize, centerCoord: CLLocationCoordinate2D, heading: CLLocationDirection) {
-        let pointCount = route.polyline.pointCount
-        guard pointCount > 1 else { return }
-        
-        let points = route.polyline.points()
-        let path = UIBezierPath()
-        var hasStarted = false
-        
-        let centerPoint = MKMapPoint(centerCoord)
-        let mapPointsPerMeter = MKMapPointsPerMeterAtLatitude(centerCoord.latitude)
-        let ppm = Double(size.width) / (mapRadiusMeters * 2.2)
-        let rad = heading * .pi / 180.0
-        
-        for i in 0..<min(pointCount, 250) {
-            let p = points[i]
-            let dxMeters = (p.x - centerPoint.x) / mapPointsPerMeter
-            let dyMeters = (p.y - centerPoint.y) / mapPointsPerMeter
-            
-            // MapPoint y tăng về phía Nam, nên khoảng cách Bắc = -dyMeters
-            let northMeters = -dyMeters
-            let eastMeters = dxMeters
-            
-            // Xoay theo camera heading
-            let forwardMeters = northMeters * cos(rad) + eastMeters * sin(rad)
-            let rightMeters = eastMeters * cos(rad) - northMeters * sin(rad)
-            
-            let screenX = size.width / 2.0 + CGFloat(rightMeters * ppm)
-            let screenY = size.height / 2.0 - CGFloat(forwardMeters * ppm)
-            
-            if screenX >= -80 && screenX <= size.width + 80 && screenY >= -80 && screenY <= size.height + 80 {
-                let pt = CGPoint(x: screenX, y: screenY)
-                if !hasStarted {
-                    path.move(to: pt)
-                    hasStarted = true
-                } else {
-                    path.addLine(to: pt)
-                }
-            }
-        }
-        
-        if hasStarted {
-            ctx.setStrokeColor(UIColor(red: 0.0, green: 0.5, blue: 1.0, alpha: 0.85).cgColor)
-            ctx.setLineWidth(7.0)
-            ctx.setLineCap(.round)
-            ctx.setLineJoin(.round)
-            path.stroke()
-            
-            // Viền lõi trắng sáng cho tuyến đường
-            ctx.setStrokeColor(UIColor.white.withAlphaComponent(0.9).cgColor)
-            ctx.setLineWidth(3.0)
-            path.stroke()
-        }
-    }
-    
-    // MARK: - Vẽ banner thông tin phía trên (Chỉ hiển thị khi đang dẫn đường)
+    // MARK: - Banner thông tin dẫn đường Turn-by-Turn phía trên màn hình TFT
     private func drawTopNavigationBanner(in ctx: CGContext, size: CGSize, instruction: NavigationInstruction) {
-        // Chỉ vẽ khung dẫn đường khi đang có lộ trình dẫn đường thực tế
         guard instruction.isNavigating else { return }
         
         let bannerRect = CGRect(x: 10, y: 6, width: size.width - 20, height: 46)
@@ -421,16 +408,15 @@ public final class TFTStreamRenderer: ObservableObject {
         ctx.setLineWidth(1.5)
         bannerPath.stroke()
         
-        // Mũi tên chỉ hướng
+        // Mũi tên chỉ hướng rẽ
         let arrowSymbol = instruction.direction.iconName
         if let arrowImage = UIImage(systemName: arrowSymbol)?.withTintColor(UIColor(red: 0.1, green: 0.95, blue: 0.4, alpha: 1.0), renderingMode: .alwaysOriginal) {
             arrowImage.draw(in: CGRect(x: 16, y: 9, width: 28, height: 28))
         }
         
-        // Dòng chữ điều hướng: Khoảng cách + Tên đường trên cùng 1 hàng, chữ phóng to cực đậm
         let navText = NSMutableAttributedString()
         
-        // 1. Khoảng cách (ví dụ 45m, 1.2km) - Font 23pt cực to, màu xanh lá neon
+        // 1. Khoảng cách còn lại (ví dụ 45m, 1.2km)
         navText.append(NSAttributedString(
             string: instruction.formattedDistance + " ",
             attributes: [
@@ -448,8 +434,8 @@ public final class TFTStreamRenderer: ObservableObject {
             ]
         ))
         
-        // 3. Tên đường kế tiếp - Font 20pt to rõ, màu trắng tinh
-        let roadName = instruction.nextRoadName.isEmpty ? "Đang đi theo lộ trình" : instruction.nextRoadName
+        // 3. Tên đường tiếp theo
+        let roadName = instruction.nextRoadName.isEmpty ? "Đang đi theo lộ trình OSM" : instruction.nextRoadName
         navText.append(NSAttributedString(
             string: roadName,
             attributes: [
@@ -461,61 +447,14 @@ public final class TFTStreamRenderer: ObservableObject {
         navText.draw(at: CGPoint(x: 52, y: 10))
     }
     
-    // MARK: - Đồng hồ đo tốc độ góc dưới bên trái
-    private func drawSpeedometerHUD(in ctx: CGContext, size: CGSize, speedKmh: Double, telemetry: BikeTelemetry) {
-        let hudRect = CGRect(x: 10, y: size.height - 62, width: 110, height: 54)
-        let hudPath = UIBezierPath(roundedRect: hudRect, cornerRadius: 8)
-        
-        ctx.setFillColor(UIColor(white: 0.08, alpha: 0.88).cgColor)
-        hudPath.fill()
-        
-        ctx.setStrokeColor(UIColor(white: 0.3, alpha: 0.5).cgColor)
-        ctx.setLineWidth(1.0)
-        hudPath.stroke()
-        
-        let speedVal = Int(telemetry.speedKmh > 0 ? telemetry.speedKmh : max(0, speedKmh))
-        let speedStr = "\(speedVal)"
-        let speedAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 34, weight: .heavy),
-            .foregroundColor: UIColor.white
-        ]
-        speedStr.draw(at: CGPoint(x: 18, y: size.height - 60), withAttributes: speedAttrs)
-        
-        let kmhAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 11, weight: .bold),
-            .foregroundColor: UIColor(red: 0.0, green: 0.8, blue: 1.0, alpha: 1.0)
-        ]
-        "KM/H".draw(at: CGPoint(x: 68, y: size.height - 40), withAttributes: kmhAttrs)
-    }
-    
-    // MARK: - Huy hiệu thông tin góc dưới bên phải
-    private func drawStatusBadge(in ctx: CGContext, size: CGSize, telemetry: BikeTelemetry) {
-        let badgeRect = CGRect(x: size.width - 105, y: size.height - 38, width: 95, height: 30)
-        let badgePath = UIBezierPath(roundedRect: badgeRect, cornerRadius: 6)
-        
-        ctx.setFillColor(UIColor(white: 0.08, alpha: 0.88).cgColor)
-        badgePath.fill()
-        
-        let text = telemetry.fuelPercent > 0 ? "⛽ \(telemetry.fuelPercent)%" : "YAMAHA"
+    // MARK: - Nhãn bản quyền OpenStreetMap
+    private func drawOSMAttribution(in ctx: CGContext, size: CGSize) {
+        let text = "© OpenStreetMap"
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 12, weight: .bold),
-            .foregroundColor: telemetry.fuelPercent > 0 ? UIColor.orange : UIColor(red: 0.0, green: 0.6, blue: 1.0, alpha: 1.0)
+            .font: UIFont.systemFont(ofSize: 9, weight: .medium),
+            .foregroundColor: UIColor(white: 0.6, alpha: 0.7)
         ]
-        text.draw(at: CGPoint(x: size.width - 92, y: size.height - 32), withAttributes: attrs)
-    }
-    
-    private func drawGridLines(in ctx: CGContext, size: CGSize) {
-        ctx.setStrokeColor(UIColor(white: 0.2, alpha: 0.3).cgColor)
-        ctx.setLineWidth(1.0)
-        for x in stride(from: 0, to: size.width, by: 40) {
-            ctx.move(to: CGPoint(x: x, y: 0))
-            ctx.addLine(to: CGPoint(x: x, y: size.height))
-        }
-        for y in stride(from: 0, to: size.height, by: 40) {
-            ctx.move(to: CGPoint(x: 0, y: y))
-            ctx.addLine(to: CGPoint(x: size.width, y: y))
-        }
-        ctx.strokePath()
+        text.draw(at: CGPoint(x: size.width - 92, y: size.height - 15), withAttributes: attrs)
     }
     
     private func renderFallbackMapFrame(title: String, subtitle: String, speedKmh: Double, telemetry: BikeTelemetry) -> Data? {
@@ -528,7 +467,19 @@ public final class TFTStreamRenderer: ObservableObject {
         
         ctx.setFillColor(UIColor(red: 0.08, green: 0.10, blue: 0.14, alpha: 1.0).cgColor)
         ctx.fill(CGRect(origin: .zero, size: size))
-        drawGridLines(in: ctx, size: size)
+        
+        // Lưới tọa độ
+        ctx.setStrokeColor(UIColor(white: 0.2, alpha: 0.3).cgColor)
+        ctx.setLineWidth(1.0)
+        for x in stride(from: 0, to: size.width, by: 40) {
+            ctx.move(to: CGPoint(x: x, y: 0))
+            ctx.addLine(to: CGPoint(x: x, y: size.height))
+        }
+        for y in stride(from: 0, to: size.height, by: 40) {
+            ctx.move(to: CGPoint(x: 0, y: y))
+            ctx.addLine(to: CGPoint(x: size.width, y: y))
+        }
+        ctx.strokePath()
         
         let tAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 18, weight: .bold),
@@ -552,3 +503,4 @@ public final class TFTStreamRenderer: ObservableObject {
         return img?.jpegData(compressionQuality: 0.85)
     }
 }
+
