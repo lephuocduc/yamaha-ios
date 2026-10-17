@@ -361,6 +361,31 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
 
 ---
 
+
+### 🚀 TÍNH NĂNG 19: Lập lộ trình đa điểm dừng (Multi-Stop), sắp xếp thứ tự linh hoạt và đánh nhãn trực quan (v0.5.24)
+* **Yêu cầu & Mục tiêu**:
+  1. Cho phép người dùng thêm nhiều điểm dừng trung gian giữa Điểm xuất phát (A) và Điểm đến (B).
+  2. Hỗ trợ sắp xếp lại thứ tự các điểm dừng bằng nút mũi tên Lên/Xuống (hoặc kéo thả).
+  3. Đánh số và dán nhãn rõ ràng trên cả giao diện danh sách và Marker trên bản đồ:
+     - Điểm xuất phát: **A** (màu xanh lá).
+     - Các điểm dừng trung gian: **1**, **2**, **3**... (màu cam).
+     - Điểm đến cuối cùng: **B** (màu đỏ).
+     - Điểm ghim tạm thời: Ghim đỏ với icon bản đồ.
+  4. Hỗ trợ 2 phương thức thêm điểm dừng:
+     - Nhấp / Nhấn giữ trực tiếp trên bản đồ (thông qua thẻ Dropped Pin Card có nút "+ Thêm điểm dừng").
+     - Nhập tìm kiếm địa chỉ từ ô Input (Search Sheet hỗ trợ chọn thêm điểm dừng mới hoặc chỉnh sửa điểm dừng đã có).
+  5. Động cơ điều hướng (Valhalla & OSRM) tính toán tuyến đường xuyên suốt qua toàn bộ các điểm dừng theo đúng thứ tự: `A -> 1 -> 2 -> ... -> B`.
+
+* **Chi tiết kỹ thuật**:
+  - **Annotation & Marker**: Thêm `stopIndex: Int?` vào `RoutePointAnnotation`. Marker view (`MKMarkerAnnotationView`) hiển thị glyphText tương ứng (`"A"`, `"(stopIndex)"`, `"B"`) với màu sắc phân biệt trực quan.
+  - **State Management**: Thêm mảng `intermediateStops: [RoutePointItem]` trong `LiveNavigationView` cùng các hàm điều khiển `moveStopUp`, `moveStopDown`, `removeIntermediateStop`, `addDroppedPinAsIntermediateStop`.
+  - **Header Lập lộ trình**:
+    - Chế độ dọc (Portrait): Hiển thị điểm A, danh sách điểm dừng 1, 2... có nút mũi tên lên/xuống và xóa, nút "+ Điểm dừng", và điểm B.
+    - Chế độ ngang (Landscape): Thanh công cụ tinh gọn hiển thị A, B, nút "+ Thêm điểm dừng" và danh sách chip điểm dừng cuộn ngang với đầy đủ nút đảo thứ tự.
+  - **NavigationEngine**: Cập nhật `calculateRoute`, `requestValhallaRoutes`, `parseValhallaTrip`, và `fallbackOSRMRoutes` hỗ trợ mảng `intermediateStops: [CLLocationCoordinate2D]`. Xử lý ghép nối đa phân đoạn (`legs`) với offset index và polyline chính xác.
+
+---
+
 ## 4. QUY TRÌNH BIÊN DỊCH VÀ PHÁT HÀNH (CI/CD)
 - Dự án sử dụng GitHub Actions workflow (`.github/workflows/build-ios.yml`).
 - Mỗi khi có commit mới được push lên nhánh `main`, hệ thống tự động:

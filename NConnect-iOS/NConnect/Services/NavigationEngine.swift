@@ -20,6 +20,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
     @Published public var isSearching: Bool = false
     @Published public var isCalculatingRoute: Bool = false
     @Published public var destinationTitle: String = "Điểm đến"
+    @Published public private(set) var currentIntermediateStops: [CLLocationCoordinate2D] = []
     @Published public var arrivalMessage: String? = nil
     @Published public var isVoiceGuidanceEnabled: Bool = false
     
@@ -407,15 +408,17 @@ public final class NavigationEngine: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Lập lộ trình chỉ đường bằng Valhalla Routing Engine (Tối ưu xe máy, TRÁNH CAO TỐC & PHÍ, GỢI Ý TUYẾN THAY THẾ)
+    // MARK: - Lập lộ trình chỉ đường bằng Valhalla Routing Engine (Tối ưu xe máy, TRÁNH CAO TỐC & PHÍ, GỢI Ý TUYẾN THAY THẾ, HỖ TRỢ ĐIỂM DỪNG TRUNG GIAN)
     public func calculateRoute(
         from origin: CLLocationCoordinate2D? = nil,
+        intermediateStops: [CLLocationCoordinate2D] = [],
         to destination: CLLocationCoordinate2D,
         destinationTitle: String = "Điểm đến",
         autoStart: Bool = true
     ) {
         self.currentDestinationCoordinate = destination
         self.destinationTitle = destinationTitle
+        self.currentIntermediateStops = intermediateStops
         let start = origin ?? currentLocation?.coordinate
         guard let startCoord = start else {
             print("[Nav] Chưa có vị trí GPS hiện tại hoặc Điểm A để lập lộ trình")
@@ -426,7 +429,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
         self.alternativeRoutes = []
         self.allCalculatedRoutes = []
         
-        requestValhallaRoutes(start: startCoord, destination: destination) { [weak self] routes in
+        requestValhallaRoutes(start: startCoord, intermediateStops: intermediateStops, destination: destination) { [weak self] routes in
             guard let self = self else { return }
             if !routes.isEmpty {
                 DispatchQueue.main.async {
@@ -434,7 +437,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
                 }
             } else {
                 print("[Nav] Valhalla không khả dụng, kích hoạt dự phòng OSRM...")
-                self.fallbackOSRMRoutes(start: startCoord, destination: destination) { [weak self] fallbackRoutes in
+                self.fallbackOSRMRoutes(start: startCoord, intermediateStops: intermediateStops, destination: destination) { [weak self] fallbackRoutes in
                     guard let self = self else { return }
                     DispatchQueue.main.async {
                         self.isCalculatingRoute = false
@@ -450,7 +453,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
     }
     
     public func calculateRoute(to destination: CLLocationCoordinate2D, destinationTitle: String = "Điểm đến") {
-        calculateRoute(from: nil, to: destination, destinationTitle: destinationTitle, autoStart: true)
+        calculateRoute(from: nil, intermediateStops: [], to: destination, destinationTitle: destinationTitle, autoStart: true)
     }
     
     public func startActiveNavigation() {
@@ -541,8 +544,13 @@ public final class NavigationEngine: NSObject, ObservableObject {
         print("[Nav] ✓ Lộ trình Valhalla sẵn sàng: \(route.steps.count) bước, cự ly \(Int(route.distanceMeters))m, thời gian \(Int(route.durationSeconds))s, ETA: \(self.currentInstruction.etaString) (autoStart: \(autoStart), Tuyến khác: \(self.alternativeRoutes.count))")
     }
     
-    // MARK: - Gọi API Valhalla Routing Engine với cấu hình xe máy (costing: motorcycle, TRÁNH CAO TỐC & PHÍ, TÌM TUYẾN PHỤ)
-    private func requestValhallaRoutes(start: CLLocationCoordinate2D, destination: CLLocationCoordinate2D, completion: @escaping ([OSMRoute]) -> Void) {
+    // MARK: - Gọi API Valhalla Routing Engine với cấu hình xe máy (costing: motorcycle, TRÁNH CAO TỐC & PHÍ, TÌM TUYẾN PHỤ, ĐIỂM DỪNG TRUNG GIAN)
+    private func requestValhallaRoutes(
+        start: CLLocationCoordinate2D,
+        intermediateStops: [CLLocationCoordinate2D] = [],
+        destination: CLLocationCoordinate2D,
+        completion: @escaping ([OSMRoute]) -> Void
+    ) {
         let serverUrl = UserDefaults.standard.string(forKey: "valhallaServerUrl") ?? "https://valhalla1.openstreetmap.de"
         let trimmedServer = serverUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard let url = URL(string: "\(trimmedServer)/route") else {
@@ -550,11 +558,16 @@ public final class NavigationEngine: NSObject, ObservableObject {
             return
         }
         
+        var locations: [[String: Any]] = [
+            ["lat": start.latitude, "lon": start.longitude, "type": "break"]
+        ]
+        for stop in intermediateStops {
+            locations.append(["lat": stop.latitude, "lon": stop.longitude, "type": "break"])
+        }
+        locations.append(["lat": destination.latitude, "lon": destination.longitude, "type": "break"])
+        
         let payload: [String: Any] = [
-            "locations": [
-                ["lat": start.latitude, "lon": start.longitude, "type": "break"],
-                ["lat": destination.latitude, "lon": destination.longitude, "type": "break"]
-            ],
+            "locations": locations,
             "costing": "motorcycle",
             "costing_options": [
                 "motorcycle": [
@@ -566,7 +579,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
                     "top_speed": 65       // Tốc độ di chuyển thực tế của xe máy
                 ]
             ],
-            "alternates": 2, // Gợi ý tối đa 2 tuyến đường thay thế (tương tự Google Maps)
+            "alternates": intermediateStops.isEmpty ? 2 : 0, // Gợi ý tối đa 2 tuyến đường thay thế (tương tự Google Maps)
             "directions_options": [
                 "units": "kilometers",
                 "language": "vi-VN"
@@ -644,8 +657,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
     }
     
     private func parseValhallaTrip(_ trip: [String: Any], startCoord: CLLocationCoordinate2D) -> OSMRoute? {
-        guard let legs = trip["legs"] as? [[String: Any]],
-              let firstLeg = legs.first else {
+        guard let legs = trip["legs"] as? [[String: Any]], !legs.isEmpty else {
             return nil
         }
         
@@ -653,58 +665,75 @@ public final class NavigationEngine: NSObject, ObservableObject {
         let totalLengthKm = summary["length"] as? Double ?? 0.0
         let totalTimeSec = summary["time"] as? Double ?? 0.0
         
-        let shape = firstLeg["shape"] as? String ?? ""
-        let coordinates = NavigationEngine.decodePolyline6(shape)
-        guard !coordinates.isEmpty else { return nil }
-        
+        var allCoordinates: [CLLocationCoordinate2D] = []
         var steps: [NavigationStep] = []
         var roadDistances: [String: Int] = [:]
         
-        if let maneuvers = firstLeg["maneuvers"] as? [[String: Any]] {
-            for m in maneuvers {
-                let type = m["type"] as? Int ?? 1
-                let rawInstruction = (m["instruction"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                let lengthKm = m["length"] as? Double ?? 0.0
-                let distMeters = Int(lengthKm * 1000.0)
-                let beginIdx = m["begin_shape_index"] as? Int ?? 0
-                
-                let streetNames = m["street_names"] as? [String] ?? []
-                var roadName = streetNames.first ?? ""
-                if roadName.isEmpty {
-                    if let range = rawInstruction.range(of: "vào ") {
-                        let extracted = String(rawInstruction[range.upperBound...])
-                        roadName = extracted.components(separatedBy: "/").first?
-                            .trimmingCharacters(in: CharacterSet(charactersIn: " .,")) ?? ""
+        for leg in legs {
+            let legOffset = allCoordinates.count
+            let shape = leg["shape"] as? String ?? ""
+            let legCoords = NavigationEngine.decodePolyline6(shape)
+            
+            if !allCoordinates.isEmpty && !legCoords.isEmpty {
+                let last = allCoordinates.last!
+                let first = legCoords.first!
+                if abs(last.latitude - first.latitude) < 0.00001 && abs(last.longitude - first.longitude) < 0.00001 {
+                    allCoordinates.append(contentsOf: legCoords.dropFirst())
+                } else {
+                    allCoordinates.append(contentsOf: legCoords)
+                }
+            } else {
+                allCoordinates.append(contentsOf: legCoords)
+            }
+            
+            if let maneuvers = leg["maneuvers"] as? [[String: Any]] {
+                for m in maneuvers {
+                    let type = m["type"] as? Int ?? 1
+                    let rawInstruction = (m["instruction"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    let lengthKm = m["length"] as? Double ?? 0.0
+                    let distMeters = Int(lengthKm * 1000.0)
+                    let beginIdx = (m["begin_shape_index"] as? Int ?? 0) + legOffset
+                    
+                    let streetNames = m["street_names"] as? [String] ?? []
+                    var roadName = streetNames.first ?? ""
+                    if roadName.isEmpty {
+                        if let range = rawInstruction.range(of: "vào ") {
+                            let extracted = String(rawInstruction[range.upperBound...])
+                            roadName = extracted.components(separatedBy: "/").first?
+                                .trimmingCharacters(in: CharacterSet(charactersIn: " .,")) ?? ""
+                        }
                     }
+                    let direction = self.mapValhallaToDirection(type: type)
+                    if roadName.isEmpty {
+                        roadName = (direction == .destination) ? "Điểm đến" : "Đoạn đường tiếp theo"
+                    }
+                    
+                    // Thống kê quãng đường từng con đường chính để đặt tên lộ trình
+                    let trimmedRoad = roadName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmedRoad.isEmpty &&
+                        trimmedRoad != "Điểm đến" &&
+                        trimmedRoad != "Đoạn đường tiếp theo" &&
+                        trimmedRoad != "Điểm xuất phát" &&
+                        !trimmedRoad.lowercased().contains("hẻm") &&
+                        !trimmedRoad.lowercased().contains("ngõ") {
+                        roadDistances[trimmedRoad, default: 0] += distMeters
+                    }
+                    
+                    let stepCoord = (beginIdx < allCoordinates.count) ? allCoordinates[beginIdx] : (allCoordinates.last ?? startCoord)
+                    let finalInstruction = rawInstruction.isEmpty ? direction.descriptionVi : rawInstruction
+                    
+                    steps.append(NavigationStep(
+                        instruction: finalInstruction,
+                        distanceMeters: distMeters,
+                        direction: direction,
+                        coordinate: stepCoord,
+                        roadName: roadName
+                    ))
                 }
-                let direction = self.mapValhallaToDirection(type: type)
-                if roadName.isEmpty {
-                    roadName = (direction == .destination) ? "Điểm đến" : "Đoạn đường tiếp theo"
-                }
-                
-                // Thống kê quãng đường từng con đường chính để đặt tên lộ trình
-                let trimmedRoad = roadName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmedRoad.isEmpty &&
-                    trimmedRoad != "Điểm đến" &&
-                    trimmedRoad != "Đoạn đường tiếp theo" &&
-                    trimmedRoad != "Điểm xuất phát" &&
-                    !trimmedRoad.lowercased().contains("hẻm") &&
-                    !trimmedRoad.lowercased().contains("ngõ") {
-                    roadDistances[trimmedRoad, default: 0] += distMeters
-                }
-                
-                let stepCoord = (beginIdx < coordinates.count) ? coordinates[beginIdx] : (coordinates.first ?? startCoord)
-                let finalInstruction = rawInstruction.isEmpty ? direction.descriptionVi : rawInstruction
-                
-                steps.append(NavigationStep(
-                    instruction: finalInstruction,
-                    distanceMeters: distMeters,
-                    direction: direction,
-                    coordinate: stepCoord,
-                    roadName: roadName
-                ))
             }
         }
+        
+        guard !allCoordinates.isEmpty else { return nil }
         
         // Đặt tên tuyến đường gợi ý dựa trên con đường chính dài nhất đã đi qua
         let topRoad = roadDistances.max(by: { $0.value < $1.value })?.key
@@ -721,7 +750,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
         }
         
         return OSMRoute(
-            coordinates: coordinates,
+            coordinates: allCoordinates,
             distanceMeters: totalLengthKm * 1000.0,
             durationSeconds: totalTimeSec,
             steps: steps,
@@ -729,9 +758,17 @@ public final class NavigationEngine: NSObject, ObservableObject {
         )
     }
     
-    // MARK: - Dự phòng OSRM khi Valhalla máy chủ quá tải hoặc không có mạng (Hỗ trợ alternatives)
-    private func fallbackOSRMRoutes(start: CLLocationCoordinate2D, destination: CLLocationCoordinate2D, completion: @escaping ([OSMRoute]) -> Void) {
-        let urlStr = "https://router.project-osrm.org/route/v1/driving/\(start.longitude),\(start.latitude);\(destination.longitude),\(destination.latitude)?overview=full&geometries=geojson&steps=true&alternatives=true"
+    // MARK: - Dự phòng OSRM khi Valhalla máy chủ quá tải hoặc không có mạng (Hỗ trợ alternatives & điểm dừng trung gian)
+    private func fallbackOSRMRoutes(
+        start: CLLocationCoordinate2D,
+        intermediateStops: [CLLocationCoordinate2D] = [],
+        destination: CLLocationCoordinate2D,
+        completion: @escaping ([OSMRoute]) -> Void
+    ) {
+        let allCoords = [start] + intermediateStops + [destination]
+        let coordsStr = allCoords.map { "\($0.longitude),\($0.latitude)" }.joined(separator: ";")
+        let altParam = intermediateStops.isEmpty ? "&alternatives=true" : ""
+        let urlStr = "https://router.project-osrm.org/route/v1/driving/\(coordsStr)?overview=full&geometries=geojson&steps=true\(altParam)"
         guard let url = URL(string: urlStr) else {
             completion([])
             return
@@ -766,36 +803,39 @@ public final class NavigationEngine: NSObject, ObservableObject {
                 var steps: [NavigationStep] = []
                 var roadDistances: [String: Int] = [:]
                 
-                if let legs = rDict["legs"] as? [[String: Any]], let firstLeg = legs.first,
-                   let legSteps = firstLeg["steps"] as? [[String: Any]] {
-                    for st in legSteps {
-                        let roadName = (st["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                        let dist = Int(st["distance"] as? Double ?? 0.0)
-                        let maneuver = st["maneuver"] as? [String: Any] ?? [:]
-                        let type = maneuver["type"] as? String ?? ""
-                        let modifier = maneuver["modifier"] as? String ?? ""
-                        
-                        var stepCoord = start
-                        if let locArr = maneuver["location"] as? [Double], locArr.count >= 2 {
-                            stepCoord = CLLocationCoordinate2D(latitude: locArr[1], longitude: locArr[0])
+                if let legs = rDict["legs"] as? [[String: Any]] {
+                    for leg in legs {
+                        if let legSteps = leg["steps"] as? [[String: Any]] {
+                            for st in legSteps {
+                                let roadName = (st["name"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                                let dist = Int(st["distance"] as? Double ?? 0.0)
+                                let maneuver = st["maneuver"] as? [String: Any] ?? [:]
+                                let type = maneuver["type"] as? String ?? ""
+                                let modifier = maneuver["modifier"] as? String ?? ""
+                                
+                                var stepCoord = start
+                                if let locArr = maneuver["location"] as? [Double], locArr.count >= 2 {
+                                    stepCoord = CLLocationCoordinate2D(latitude: locArr[1], longitude: locArr[0])
+                                }
+                                
+                                let dir = self.mapOSRMToDirection(type: type, modifier: modifier)
+                                let text = self.buildOSRMInstructionText(type: type, modifier: modifier, roadName: roadName)
+                                
+                                if !roadName.isEmpty &&
+                                    !roadName.lowercased().contains("hẻm") &&
+                                    !roadName.lowercased().contains("ngõ") {
+                                    roadDistances[roadName, default: 0] += dist
+                                }
+                                
+                                steps.append(NavigationStep(
+                                    instruction: text,
+                                    distanceMeters: dist,
+                                    direction: dir,
+                                    coordinate: stepCoord,
+                                    roadName: roadName.isEmpty ? "Đoạn đường tiếp theo" : roadName
+                                ))
+                            }
                         }
-                        
-                        let dir = self.mapOSRMToDirection(type: type, modifier: modifier)
-                        let text = self.buildOSRMInstructionText(type: type, modifier: modifier, roadName: roadName)
-                        
-                        if !roadName.isEmpty &&
-                            !roadName.lowercased().contains("hẻm") &&
-                            !roadName.lowercased().contains("ngõ") {
-                            roadDistances[roadName, default: 0] += dist
-                        }
-                        
-                        steps.append(NavigationStep(
-                            instruction: text,
-                            distanceMeters: dist,
-                            direction: dir,
-                            coordinate: stepCoord,
-                            roadName: roadName.isEmpty ? "Đoạn đường tiếp theo" : roadName
-                        ))
                     }
                 }
                 
@@ -1000,6 +1040,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
         isNavigating = false
         isRerouting = false
         currentDestinationCoordinate = nil
+        currentIntermediateStops.removeAll()
         offRouteConsecutiveTicks = 0
         activeRoute = nil
         alternativeRoutes.removeAll()
@@ -1276,7 +1317,7 @@ extension NavigationEngine: CLLocationManagerDelegate {
                 isRerouting = true
                 
                 // Tự động yêu cầu Valhalla tính lại tuyến đường tối ưu từ vị trí xe hiện tại
-                calculateRoute(from: currentLoc.coordinate, to: dest, autoStart: true)
+                calculateRoute(from: currentLoc.coordinate, intermediateStops: currentIntermediateStops, to: dest, destinationTitle: destinationTitle, autoStart: true)
             }
         } else {
             offRouteConsecutiveTicks = 0

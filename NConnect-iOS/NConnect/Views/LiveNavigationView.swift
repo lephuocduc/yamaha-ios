@@ -17,24 +17,26 @@ public struct RoutePointItem: Equatable, Identifiable {
     }
 }
 
-// MARK: - Annotation ghim Điểm A, Điểm B & Điểm nhấn giữ trên bản đồ
+// MARK: - Annotation ghim Điểm A, Điểm B, Điểm dừng trung gian (1, 2, 3...) & Điểm nhấn giữ trên bản đồ
 public class RoutePointAnnotation: NSObject, MKAnnotation {
     public var coordinate: CLLocationCoordinate2D
     public var isPointA: Bool
     public var isDroppedPin: Bool
+    public var stopIndex: Int?
     public var title: String?
     public var subtitle: String?
     
-    public init(coordinate: CLLocationCoordinate2D, isPointA: Bool = false, isDroppedPin: Bool = false, title: String, subtitle: String? = nil) {
+    public init(coordinate: CLLocationCoordinate2D, isPointA: Bool = false, isDroppedPin: Bool = false, stopIndex: Int? = nil, title: String, subtitle: String? = nil) {
         self.coordinate = coordinate
         self.isPointA = isPointA
         self.isDroppedPin = isDroppedPin
+        self.stopIndex = stopIndex
         self.title = title
         self.subtitle = subtitle
     }
 }
 
-// MARK: - Loại địa điểm đặc biệt đã lưu (Nhà, Công ty, Yêu thích, Vị trí đỗ xe)
+// MARK: - Loại địa điểm đặc biệt đã lưu (Nhà, Công ty, Y��u thích, Vị trí đỗ xe)
 public enum SpecialPlaceType: String {
     case home = "Nhà"
     case work = "Công ty"
@@ -83,9 +85,10 @@ public struct LiveNavigationView: View {
     @ObservedObject private var savedPlaces = SavedPlacesManager.shared
     @ObservedObject private var parkingManager = ParkingLocationManager.shared
     
-    // Quản lý Điểm A (Xuất phát) và Điểm B (Điểm đến)
+    // Quản lý Điểm A (Xuất phát), Các điểm dừng trung gian và Điểm B (Điểm đến)
     @State private var pointA: RoutePointItem? = nil // nil = Vị trí GPS hiện tại của người dùng
     @State private var pointB: RoutePointItem? = nil
+    @State private var intermediateStops: [RoutePointItem] = []
     
     // Quản lý Điểm ghim khi nhấn giữ trên bản đồ (Dropped Pin Long Press)
     @State private var droppedPinCoordinate: CLLocationCoordinate2D? = nil
@@ -94,9 +97,11 @@ public struct LiveNavigationView: View {
     @State private var isLoadingAddress: Bool = false
     @State private var showDroppedPinCard: Bool = false
     
-    private enum SearchTarget {
+    private enum SearchTarget: Equatable {
         case pointA
         case pointB
+        case newStop
+        case editStop(Int)
     }
     @State private var searchTarget: SearchTarget = .pointB
     
@@ -116,6 +121,7 @@ public struct LiveNavigationView: View {
                 route: navEngine.activeRoute,
                 coordA: pointA?.coordinate,
                 coordB: pointB?.coordinate,
+                intermediateStopCoords: intermediateStops.map { $0.coordinate },
                 droppedPinCoord: droppedPinCoordinate,
                 onLocationLongPressed: { coord in
                     handleMapLongPress(coordinate: coord)
@@ -260,80 +266,147 @@ public struct LiveNavigationView: View {
     
     // Giao diện hộp chọn lộ trình khi cầm ngang (Landscape) - Tinh gọn theo hàng ngang
     private var landscapeRoutePlannerHeader: some View {
-        HStack(spacing: 8) {
-            // Ô Điểm A (Xuất phát)
-            Button(action: {
-                searchTarget = .pointA
-                searchQuery = ""
-                showSearchSheet = true
-            }) {
-                HStack(spacing: 6) {
-                    Circle().fill(Color.green).frame(width: 8, height: 8)
-                    Text(pointA?.title ?? "Vị trí của bạn")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(pointA == nil ? .cyan : .white)
-                        .lineLimit(1)
-                    Spacer()
-                    if pointA != nil {
-                        Button(action: {
-                            pointA = nil
-                            triggerRouteCalculation()
-                        }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.gray)
-                                .font(.system(size: 12))
+        VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                // Ô Điểm A (Xuất phát)
+                Button(action: {
+                    searchTarget = .pointA
+                    searchQuery = ""
+                    showSearchSheet = true
+                }) {
+                    HStack(spacing: 6) {
+                        ZStack {
+                            Circle().fill(Color.green).frame(width: 16, height: 16)
+                            Text("A").font(.system(size: 9, weight: .bold)).foregroundColor(.white)
+                        }
+                        Text(pointA?.title ?? "Vị trí của bạn")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(pointA == nil ? .cyan : .white)
+                            .lineLimit(1)
+                        Spacer()
+                        if pointA != nil {
+                            Button(action: {
+                                pointA = nil
+                                triggerRouteCalculation()
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.gray)
+                                    .font(.system(size: 12))
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color(white: 0.16))
+                    .cornerRadius(8)
+                }
+                .frame(maxWidth: .infinity)
+                
+                // Nút Đảo Chiều lộ trình (Swap)
+                Button(action: {
+                    swapPoints()
+                }) {
+                    Image(systemName: "arrow.left.arrow.right.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(.cyan)
+                }
+                
+                // Ô Điểm B (Điểm đến)
+                Button(action: {
+                    searchTarget = .pointB
+                    searchQuery = ""
+                    showSearchSheet = true
+                }) {
+                    HStack(spacing: 6) {
+                        ZStack {
+                            Circle().fill(Color.red).frame(width: 16, height: 16)
+                            Text("B").font(.system(size: 9, weight: .bold)).foregroundColor(.white)
+                        }
+                        Text(pointB?.title ?? "Nhập điểm đến (Điểm B)...")
+                            .font(.system(size: 13, weight: pointB == nil ? .regular : .semibold))
+                            .foregroundColor(pointB == nil ? .gray : .white)
+                            .lineLimit(1)
+                        Spacer()
+                        if pointB != nil {
+                            Button(action: {
+                                clearRoute()
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.gray)
+                                    .font(.system(size: 12))
+                            }
+                        } else if navEngine.isCalculatingRoute {
+                            ProgressView().scaleEffect(0.6)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color(white: 0.16))
+                    .cornerRadius(8)
+                }
+                .frame(maxWidth: .infinity)
+                
+                // Nút Thêm điểm dừng
+                Button(action: {
+                    searchTarget = .newStop
+                    searchQuery = ""
+                    showSearchSheet = true
+                }) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(.orange)
+                }
+            }
+            
+            // Thanh cuộn các điểm dừng trung gian (nếu có) khi ở chế độ ngang
+            if !intermediateStops.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(intermediateStops.enumerated()), id: \.element.id) { index, stop in
+                            HStack(spacing: 5) {
+                                ZStack {
+                                    Circle().fill(Color.orange).frame(width: 16, height: 16)
+                                    Text("\(index + 1)").font(.system(size: 9, weight: .bold)).foregroundColor(.white)
+                                }
+                                Text(stop.title)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .lineLimit(1)
+                                
+                                Button(action: {
+                                    moveStopUp(at: index)
+                                }) {
+                                    Image(systemName: "chevron.left")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(index > 0 ? .cyan : .gray.opacity(0.3))
+                                }
+                                .disabled(index == 0)
+                                
+                                Button(action: {
+                                    moveStopDown(at: index)
+                                }) {
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(index < intermediateStops.count - 1 ? .cyan : .gray.opacity(0.3))
+                                }
+                                .disabled(index == intermediateStops.count - 1)
+                                
+                                Button(action: {
+                                    removeIntermediateStop(at: index)
+                                }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.red.opacity(0.8))
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color(white: 0.20))
+                            .cornerRadius(12)
                         }
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(Color(white: 0.16))
-                .cornerRadius(8)
             }
-            .frame(maxWidth: .infinity)
-            
-            // Nút Đảo Chiều lộ trình (Swap)
-            Button(action: {
-                swapPoints()
-            }) {
-                Image(systemName: "arrow.left.arrow.right.circle.fill")
-                    .font(.system(size: 24))
-                    .foregroundColor(.cyan)
-            }
-            
-            // Ô Điểm B (Điểm đến)
-            Button(action: {
-                searchTarget = .pointB
-                searchQuery = ""
-                showSearchSheet = true
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "mappin.circle.fill")
-                        .foregroundColor(.red)
-                        .font(.system(size: 12))
-                    Text(pointB?.title ?? "Nhập điểm đến (Điểm B)...")
-                        .font(.system(size: 13, weight: pointB == nil ? .regular : .semibold))
-                        .foregroundColor(pointB == nil ? .gray : .white)
-                        .lineLimit(1)
-                    Spacer()
-                    if pointB != nil {
-                        Button(action: {
-                            clearRoute()
-                        }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.gray)
-                                .font(.system(size: 12))
-                        }
-                    } else if navEngine.isCalculatingRoute {
-                        ProgressView().scaleEffect(0.6)
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(Color(white: 0.16))
-                .cornerRadius(8)
-            }
-            .frame(maxWidth: .infinity)
         }
         .padding(8)
         .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.96))
@@ -344,103 +417,172 @@ public struct LiveNavigationView: View {
     // Giao diện hộp chọn lộ trình khi cầm dọc (Portrait)
     private var portraitRoutePlannerHeader: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 12) {
-                // Biểu tượng chuỗi hành trình Điểm A -> Điểm B
-                VStack(spacing: 4) {
-                    Circle()
-                        .fill(Color.green)
-                        .frame(width: 12, height: 12)
-                    
-                    VStack(spacing: 2) {
-                        Circle().fill(Color.gray.opacity(0.6)).frame(width: 3, height: 3)
-                        Circle().fill(Color.gray.opacity(0.6)).frame(width: 3, height: 3)
-                        Circle().fill(Color.gray.opacity(0.6)).frame(width: 3, height: 3)
-                    }
-                    
-                    Image(systemName: "mappin.circle.fill")
-                        .foregroundColor(.red)
-                        .font(.system(size: 14))
-                }
-                .padding(.leading, 4)
-                
-                // 2 Ô nhập Điểm A và Điểm B
-                VStack(spacing: 8) {
-                    // Ô Điểm A (Xuất phát)
-                    Button(action: {
-                        searchTarget = .pointA
-                        searchQuery = ""
-                        showSearchSheet = true
-                    }) {
-                        HStack {
-                            Text(pointA?.title ?? "Vị trí của bạn")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(pointA == nil ? .cyan : .white)
-                                .lineLimit(1)
-                            Spacer()
-                            if pointA != nil {
-                                Button(action: {
-                                    pointA = nil
-                                    triggerRouteCalculation()
-                                }) {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.gray)
-                                        .font(.system(size: 14))
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color(white: 0.16))
-                        .cornerRadius(8)
-                    }
-                    
-                    // Ô Điểm B (Điểm đến)
-                    Button(action: {
-                        searchTarget = .pointB
-                        searchQuery = ""
-                        showSearchSheet = true
-                    }) {
-                        HStack {
-                            Text(pointB?.title ?? "Nhập điểm đến (Điểm B)...")
-                                .font(.system(size: 14, weight: pointB == nil ? .regular : .semibold))
-                                .foregroundColor(pointB == nil ? .gray : .white)
-                                .lineLimit(1)
-                            Spacer()
-                            if pointB != nil {
-                                Button(action: {
-                                    clearRoute()
-                                }) {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.gray)
-                                        .font(.system(size: 14))
-                                }
-                            } else if navEngine.isCalculatingRoute {
-                                ProgressView()
-                                    .scaleEffect(0.7)
-                            }
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color(white: 0.16))
-                        .cornerRadius(8)
-                    }
+            // Hàng 1: Ô Điểm A (Xuất phát)
+            HStack(spacing: 8) {
+                // Nhãn A (Xanh lá)
+                ZStack {
+                    Circle().fill(Color.green).frame(width: 24, height: 24)
+                    Text("A")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.white)
                 }
                 
-                // Nút Đảo Chiều lộ trình (Swap Điểm A <-> Điểm B)
+                Button(action: {
+                    searchTarget = .pointA
+                    searchQuery = ""
+                    showSearchSheet = true
+                }) {
+                    HStack {
+                        Text(pointA?.title ?? "Vị trí của bạn (Điểm A)")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(pointA == nil ? .cyan : .white)
+                            .lineLimit(1)
+                        Spacer()
+                        if pointA != nil {
+                            Button(action: {
+                                pointA = nil
+                                triggerRouteCalculation()
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.gray)
+                                    .font(.system(size: 14))
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color(white: 0.16))
+                    .cornerRadius(8)
+                }
+                
+                // Nút Đảo Chiều toàn bộ lộ trình (Swap A <-> B và đảo ngược thứ tự các điểm dừng)
                 Button(action: {
                     swapPoints()
                 }) {
                     Image(systemName: "arrow.up.arrow.down.circle.fill")
-                        .font(.system(size: 28))
+                        .font(.system(size: 24))
                         .foregroundColor(.cyan)
-                        .padding(4)
                 }
             }
-            .padding(10)
-            .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.96))
-            .cornerRadius(16)
-            .shadow(color: Color.black.opacity(0.4), radius: 8, y: 4)
+            
+            // Danh sách các điểm dừng trung gian (Đánh số 1, 2, 3...)
+            if !intermediateStops.isEmpty {
+                ForEach(Array(intermediateStops.enumerated()), id: \.element.id) { index, stop in
+                    HStack(spacing: 8) {
+                        // Nhãn số thứ tự (1, 2, 3...)
+                        ZStack {
+                            Circle().fill(Color.orange).frame(width: 24, height: 24)
+                            Text("\(index + 1)")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+                        
+                        // Tên điểm dừng (Bấm để đổi địa điểm)
+                        Button(action: {
+                            searchTarget = .editStop(index)
+                            searchQuery = ""
+                            showSearchSheet = true
+                        }) {
+                            HStack {
+                                Text(stop.title)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .lineLimit(1)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(Color(white: 0.16))
+                            .cornerRadius(8)
+                        }
+                        
+                        // Nút Di chuyển Lên (Up arrow)
+                        Button(action: {
+                            moveStopUp(at: index)
+                        }) {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(index > 0 ? .cyan : .gray.opacity(0.3))
+                        }
+                        .disabled(index == 0)
+                        
+                        // Nút Di chuyển Xuống (Down arrow)
+                        Button(action: {
+                            moveStopDown(at: index)
+                        }) {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(index < intermediateStops.count - 1 ? .cyan : .gray.opacity(0.3))
+                        }
+                        .disabled(index == intermediateStops.count - 1)
+                        
+                        // Nút Xóa điểm dừng
+                        Button(action: {
+                            removeIntermediateStop(at: index)
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(.red.opacity(0.85))
+                        }
+                    }
+                }
+            }
+            
+            // Hàng Ô Điểm B (Điểm đến)
+            HStack(spacing: 8) {
+                // Nhãn B (Đỏ)
+                ZStack {
+                    Circle().fill(Color.red).frame(width: 24, height: 24)
+                    Text("B")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.white)
+                }
+                
+                Button(action: {
+                    searchTarget = .pointB
+                    searchQuery = ""
+                    showSearchSheet = true
+                }) {
+                    HStack {
+                        Text(pointB?.title ?? "Nhập điểm đến (Điểm B)...")
+                            .font(.system(size: 13, weight: pointB == nil ? .regular : .semibold))
+                            .foregroundColor(pointB == nil ? .gray : .white)
+                            .lineLimit(1)
+                        Spacer()
+                        if pointB != nil {
+                            Button(action: {
+                                clearRoute()
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.gray)
+                                    .font(.system(size: 14))
+                            }
+                        } else if navEngine.isCalculatingRoute {
+                            ProgressView().scaleEffect(0.7)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color(white: 0.16))
+                    .cornerRadius(8)
+                }
+                
+                // Nút "+ Điểm dừng"
+                Button(action: {
+                    searchTarget = .newStop
+                    searchQuery = ""
+                    showSearchSheet = true
+                }) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(.orange)
+                }
+            }
         }
+        .padding(10)
+        .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.96))
+        .cornerRadius(16)
+        .shadow(color: Color.black.opacity(0.4), radius: 8, y: 4)
     }
     
     // MARK: - Thẻ chi tiết địa điểm khi nhấn giữ (Dropped Pin Location Card)
@@ -511,24 +653,44 @@ public struct LiveNavigationView: View {
                 }
             }
             
-            // Các nút hành động: Dẫn đường tới đây, Đặt làm điểm A, Lưu yêu thích
+            // Các nút hành động: Dẫn đường tới đây (Điểm B), Thêm điểm dừng, Đặt làm điểm A, Lưu yêu thích
             VStack(spacing: 8) {
-                // Nút DẪN ĐƯỜNG ĐẾN ĐÂY (Nổi bật, to, xanh lá)
-                Button(action: {
-                    navigateCurrentToDroppedPin()
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.triangle.turn.up.right.circle.fill")
-                            .font(.system(size: 16, weight: .bold))
-                        Text("DẪN ĐƯỜNG ĐẾN ĐÂY")
-                            .font(.system(size: 14, weight: .heavy))
+                HStack(spacing: 10) {
+                    // Nút DẪN ĐƯỜNG ĐẾN ĐÂY (Điểm đến B)
+                    Button(action: {
+                        navigateCurrentToDroppedPin()
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "flag.checkered.circle.fill")
+                                .font(.system(size: 15, weight: .bold))
+                            Text("Điểm đến (B)")
+                                .font(.system(size: 13, weight: .heavy))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.red.opacity(0.9))
+                        .cornerRadius(12)
+                        .shadow(color: Color.red.opacity(0.3), radius: 4, y: 2)
                     }
-                    .foregroundColor(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Color.green)
-                    .cornerRadius(12)
-                    .shadow(color: Color.green.opacity(0.4), radius: 4, y: 2)
+                    
+                    // Nút THÊM ĐIỂM DỪNG (Cam/Amber)
+                    Button(action: {
+                        addDroppedPinAsIntermediateStop()
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 15, weight: .bold))
+                            Text("+ Thêm điểm dừng")
+                                .font(.system(size: 13, weight: .heavy))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Color.orange)
+                        .cornerRadius(12)
+                        .shadow(color: Color.orange.opacity(0.35), radius: 4, y: 2)
+                    }
                 }
                 
                 HStack(spacing: 10) {
@@ -538,13 +700,13 @@ public struct LiveNavigationView: View {
                     }) {
                         HStack(spacing: 5) {
                             Image(systemName: "location.north.circle.fill")
-                                .font(.system(size: 14))
+                                .font(.system(size: 13))
                             Text("Điểm xuất phát A")
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(.system(size: 12, weight: .semibold))
                         }
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
+                        .padding(.vertical, 9)
                         .background(Color(white: 0.22))
                         .cornerRadius(10)
                     }
@@ -555,14 +717,14 @@ public struct LiveNavigationView: View {
                     }) {
                         HStack(spacing: 5) {
                             Image(systemName: isDroppedPinFavorite ? "star.fill" : "star")
-                                .font(.system(size: 14, weight: .bold))
+                                .font(.system(size: 13, weight: .bold))
                                 .foregroundColor(isDroppedPinFavorite ? .yellow : .white)
                             Text(isDroppedPinFavorite ? "Đã lưu" : "Lưu yêu thích")
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(isDroppedPinFavorite ? .yellow : .white)
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
+                        .padding(.vertical, 9)
                         .background(isDroppedPinFavorite ? Color.yellow.opacity(0.2) : Color(white: 0.22))
                         .cornerRadius(10)
                         .overlay(
@@ -1080,7 +1242,14 @@ public struct LiveNavigationView: View {
                     }
                 }
             }
-            .navigationTitle(searchTarget == .pointA ? "Chọn Điểm A (Xuất phát)" : "Chọn Điểm B (Điểm đến)")
+            .navigationTitle({
+                switch searchTarget {
+                case .pointA: return "Chọn Điểm A (Xuất phát)"
+                case .pointB: return "Chọn Điểm B (Điểm đến)"
+                case .newStop: return "Thêm Điểm Dừng Trung Gian"
+                case .editStop(let idx): return "Đổi Điểm Dừng \(idx + 1)"
+                }
+            }())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1098,10 +1267,17 @@ public struct LiveNavigationView: View {
             coordinate: item.coordinate,
             isCurrentLocation: false
         )
-        if searchTarget == .pointA {
+        switch searchTarget {
+        case .pointA:
             pointA = routeItem
-        } else {
+        case .pointB:
             pointB = routeItem
+        case .newStop:
+            intermediateStops.append(routeItem)
+        case .editStop(let idx):
+            if idx >= 0 && idx < intermediateStops.count {
+                intermediateStops[idx] = routeItem
+            }
         }
         showSearchSheet = false
         triggerRouteCalculation()
@@ -1109,7 +1285,8 @@ public struct LiveNavigationView: View {
     
     private func triggerRouteCalculation() {
         guard let startCoord = effectivePointACoordinate, let dest = pointB else { return }
-        navEngine.calculateRoute(from: startCoord, to: dest.coordinate, destinationTitle: dest.title, autoStart: false)
+        let stopCoords = intermediateStops.map { $0.coordinate }
+        navEngine.calculateRoute(from: startCoord, intermediateStops: stopCoords, to: dest.coordinate, destinationTitle: dest.title, autoStart: false)
     }
     
     private func swapPoints() {
@@ -1129,14 +1306,60 @@ public struct LiveNavigationView: View {
         }
         
         pointA = oldB
+        intermediateStops.reverse()
         triggerRouteCalculation()
     }
     
+    private func moveStopUp(at index: Int) {
+        guard index > 0 && index < intermediateStops.count else { return }
+        withAnimation {
+            intermediateStops.swapAt(index, index - 1)
+            triggerRouteCalculation()
+        }
+    }
+    
+    private func moveStopDown(at index: Int) {
+        guard index >= 0 && index < intermediateStops.count - 1 else { return }
+        withAnimation {
+            intermediateStops.swapAt(index, index + 1)
+            triggerRouteCalculation()
+        }
+    }
+    
+    private func removeIntermediateStop(at index: Int) {
+        guard index >= 0 && index < intermediateStops.count else { return }
+        withAnimation {
+            intermediateStops.remove(at: index)
+            triggerRouteCalculation()
+        }
+    }
+    
+    private func addDroppedPinAsIntermediateStop() {
+        guard let pinCoord = droppedPinCoordinate else { return }
+        let title = droppedPinTitle.isEmpty ? "Điểm dừng \(intermediateStops.count + 1)" : droppedPinTitle
+        let subtitle = droppedPinSubtitle
+        
+        let stopItem = RoutePointItem(
+            title: title,
+            subtitle: subtitle,
+            coordinate: pinCoord,
+            isCurrentLocation: false
+        )
+        withAnimation {
+            intermediateStops.append(stopItem)
+            dismissDroppedPin()
+            triggerRouteCalculation()
+        }
+    }
+    
     private func startNavigation() {
+        let stopCoords = intermediateStops.map { $0.coordinate }
         if pointA != nil, let curLoc = navEngine.currentLocation, let dest = pointB {
             let destTitle = dest.title
             pointA = nil
-            navEngine.calculateRoute(from: curLoc.coordinate, to: dest.coordinate, destinationTitle: destTitle, autoStart: true)
+            navEngine.calculateRoute(from: curLoc.coordinate, intermediateStops: stopCoords, to: dest.coordinate, destinationTitle: destTitle, autoStart: true)
+        } else if let startCoord = effectivePointACoordinate, let dest = pointB {
+            navEngine.calculateRoute(from: startCoord, intermediateStops: stopCoords, to: dest.coordinate, destinationTitle: dest.title, autoStart: true)
         } else {
             navEngine.startActiveNavigation()
         }
@@ -1149,6 +1372,7 @@ public struct LiveNavigationView: View {
     private func clearRoute() {
         pointA = nil
         pointB = nil
+        intermediateStops.removeAll()
         navEngine.stopNavigation()
     }
     
@@ -1358,7 +1582,7 @@ public class NavRoutePolyline: MKPolyline {
     public var timeDiffString: String = ""
 }
 
-// MARK: - View Bản đồ OpenStreetMap tương tác (Vẽ lộ trình Google Maps, Ghim Điểm A/B & Điểm nhấn giữ)
+// MARK: - View Bản đồ OpenStreetMap tương tác (Vẽ lộ trình Google Maps, Ghim Điểm A/B, Điểm dừng trung gian & Điểm nhấn giữ)
 public struct OSMMapView: UIViewRepresentable {
     @ObservedObject var navEngine: NavigationEngine
     @Binding var trackingMode: MapUserTrackingMode
@@ -1366,6 +1590,7 @@ public struct OSMMapView: UIViewRepresentable {
     var route: OSMRoute?
     var coordA: CLLocationCoordinate2D?
     var coordB: CLLocationCoordinate2D?
+    var intermediateStopCoords: [CLLocationCoordinate2D] = []
     var droppedPinCoord: CLLocationCoordinate2D?
     var onLocationLongPressed: ((CLLocationCoordinate2D) -> Void)?
     var onSelectSpecialPlace: ((SpecialPlaceAnnotation) -> Void)?
@@ -1377,6 +1602,7 @@ public struct OSMMapView: UIViewRepresentable {
         route: OSMRoute?,
         coordA: CLLocationCoordinate2D? = nil,
         coordB: CLLocationCoordinate2D? = nil,
+        intermediateStopCoords: [CLLocationCoordinate2D] = [],
         droppedPinCoord: CLLocationCoordinate2D? = nil,
         onLocationLongPressed: ((CLLocationCoordinate2D) -> Void)? = nil,
         onSelectSpecialPlace: ((SpecialPlaceAnnotation) -> Void)? = nil
@@ -1387,6 +1613,7 @@ public struct OSMMapView: UIViewRepresentable {
         self.route = route
         self.coordA = coordA
         self.coordB = coordB
+        self.intermediateStopCoords = intermediateStopCoords
         self.droppedPinCoord = droppedPinCoord
         self.onLocationLongPressed = onLocationLongPressed
         self.onSelectSpecialPlace = onSelectSpecialPlace
@@ -1448,7 +1675,7 @@ public struct OSMMapView: UIViewRepresentable {
             uiView.addOverlay(newOverlay, level: .aboveRoads)
         }
         
-        context.coordinator.updateRoute(on: uiView, newRoute: route, coordA: coordA, coordB: coordB)
+        context.coordinator.updateRoute(on: uiView, newRoute: route, coordA: coordA, stopCoords: intermediateStopCoords, coordB: coordB)
         context.coordinator.updateDroppedPin(on: uiView, coord: droppedPinCoord)
         context.coordinator.updateSpecialPlaces(on: uiView)
         
@@ -1740,9 +1967,18 @@ public struct OSMMapView: UIViewRepresentable {
                 return view
             }
             
-            // 2. Điểm A, Điểm B, Dropped Pin
+            // 2. Điểm A, Điểm B, Điểm dừng trung gian (1, 2, 3...), Dropped Pin
             guard let ptAnn = annotation as? RoutePointAnnotation else { return nil }
-            let id = ptAnn.isDroppedPin ? "DroppedPinMarker" : "RoutePointMarker"
+            let id: String
+            if ptAnn.isDroppedPin {
+                id = "DroppedPinMarker"
+            } else if let stopIdx = ptAnn.stopIndex {
+                id = "StopMarker_\(stopIdx)"
+            } else if ptAnn.isPointA {
+                id = "PointAMarker"
+            } else {
+                id = "PointBMarker"
+            }
             let view = (mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView)
                 ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: id)
             
@@ -1751,6 +1987,9 @@ public struct OSMMapView: UIViewRepresentable {
             if ptAnn.isPointA {
                 view.markerTintColor = UIColor.systemGreen
                 view.glyphText = "A"
+            } else if let stopIdx = ptAnn.stopIndex {
+                view.markerTintColor = UIColor.systemOrange
+                view.glyphText = "\(stopIdx)"
             } else if ptAnn.isDroppedPin {
                 view.markerTintColor = UIColor.systemRed
                 view.glyphImage = UIImage(systemName: "mappin.circle.fill")
@@ -1830,11 +2069,13 @@ public struct OSMMapView: UIViewRepresentable {
             on mapView: MKMapView,
             newRoute: OSMRoute?,
             coordA: CLLocationCoordinate2D?,
+            stopCoords: [CLLocationCoordinate2D] = [],
             coordB: CLLocationCoordinate2D?
         ) {
             let routeId = newRoute?.id.uuidString ?? ""
             let altCount = parent.navEngine.alternativeRoutes.count
-            let key = "\(routeId)_\(altCount)_\(coordA?.latitude ?? 0)_\(coordB?.latitude ?? 0)"
+            let stopsKey = stopCoords.map { "\($0.latitude),\($0.longitude)" }.joined(separator: ";")
+            let key = "\(routeId)_\(altCount)_\(coordA?.latitude ?? 0)_\(stopsKey)_\(coordB?.latitude ?? 0)"
             guard key != lastRouteKey else { return }
             lastRouteKey = key
             
@@ -1874,12 +2115,22 @@ public struct OSMMapView: UIViewRepresentable {
                 mapView.addOverlay(poly, level: .aboveLabels)
             }
             
-            // Ghim Điểm A (Xanh lá) & Điểm B (Đỏ)
+            // Ghim Điểm A (Xanh lá - A)
             if let a = coordA {
                 let annA = RoutePointAnnotation(coordinate: a, isPointA: true, title: "Điểm A (Xuất phát)")
                 routeAnnotations.append(annA)
                 mapView.addAnnotation(annA)
             }
+            
+            // Ghim các điểm dừng trung gian (Cam - 1, 2, 3...)
+            for (idx, sc) in stopCoords.enumerated() {
+                let stopTitle = idx < parent.intermediateStops.count ? parent.intermediateStops[idx].title : "Điểm dừng \(idx + 1)"
+                let annStop = RoutePointAnnotation(coordinate: sc, stopIndex: idx + 1, title: "\(idx + 1). \(stopTitle)")
+                routeAnnotations.append(annStop)
+                mapView.addAnnotation(annStop)
+            }
+            
+            // Ghim Điểm B (Đỏ - B)
             if let b = coordB {
                 let annB = RoutePointAnnotation(coordinate: b, isPointA: false, title: "Điểm B (Điểm đến)")
                 routeAnnotations.append(annB)
