@@ -97,8 +97,6 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         return false
     }
     
-    public static var shared: YamahaCCUManager?
-    
     @Published public var state: BikeConnectionState = .disconnected
     @Published public var discoveredBikes: [BikeDevice] = []
     @Published public var connectedBike: BikeDevice?
