@@ -758,7 +758,24 @@ extension NavigationEngine: CLLocationManagerDelegate {
                 currentInstruction.distanceMeters = Int(dist)
             }
             
-            if dist < 25.0 { // Đã đi qua ngã rẽ
+            // Ngưỡng chuyển bước thích ứng theo tốc độ (High-Speed Adaptive Turn Threshold):
+            // Ở tốc độ cao (60 - 100+ km/h), xe di chuyển 17 - 28 mét/giây.
+            // Ngưỡng được mở rộng theo vận tốc để GPS 1Hz không bao giờ bị nhảy cóc qua ngã rẽ.
+            let speedMps = max(0.0, loc.speed)
+            let dynamicThreshold = max(28.0, speedMps * 2.2) // 40km/h: ~28m, 60km/h: ~37m, 90km/h: ~55m
+            
+            var shouldAdvance = dist < dynamicThreshold
+            
+            // Nếu xe đã vượt qua ngã rẽ hiện tại và đang tiến gần hơn tới ngã rẽ tiếp theo (i+1)
+            if !shouldAdvance && (currentStepIndex + 1) < routeSteps.count {
+                let nextTarget = routeSteps[currentStepIndex + 1].coordinate
+                let nextDist = loc.distance(from: CLLocation(latitude: nextTarget.latitude, longitude: nextTarget.longitude))
+                if nextDist < dist && dist < 90.0 {
+                    shouldAdvance = true
+                }
+            }
+            
+            if shouldAdvance {
                 currentStepIndex += 1
                 updateCurrentInstruction()
             }

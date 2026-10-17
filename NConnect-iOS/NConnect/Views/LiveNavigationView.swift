@@ -676,12 +676,20 @@ public struct OSMMapView: UIViewRepresentable {
         context.coordinator.updateRoute(on: uiView, newRoute: route, coordA: coordA, coordB: coordB)
         
         if trackingMode == .follow, navEngine.isNavigating, let loc = navEngine.currentLocation {
-            let center = uiView.centerCoordinate
-            let dLat = abs(center.latitude - loc.coordinate.latitude)
-            let dLon = abs(center.longitude - loc.coordinate.longitude)
-            if dLat > 0.0001 || dLon > 0.0001 {
-                uiView.setCenter(loc.coordinate, animated: true)
-            }
+            // Camera dẫn đường tốc độ cao (Speed-Adaptive 3D Camera):
+            // Tự động xoay theo hướng di chuyển (Heading-up) và mở rộng tầm nhìn khi chạy nhanh (60-100km/h)
+            let speedKmh = max(0.0, loc.speed * 3.6)
+            let viewDistance: CLLocationDistance = speedKmh > 65 ? 850.0 : (speedKmh > 35 ? 600.0 : 420.0)
+            let pitch: CGFloat = speedKmh > 15 ? 45.0 : 0.0 // Góc nhìn 3D thể thao khi xe lăn bánh
+            let heading = (loc.course >= 0) ? loc.course : uiView.camera.heading
+            
+            let camera = MKMapCamera(
+                lookingAtCenter: loc.coordinate,
+                fromDistance: viewDistance,
+                pitch: pitch,
+                heading: heading
+            )
+            uiView.setCamera(camera, animated: true)
         }
     }
     

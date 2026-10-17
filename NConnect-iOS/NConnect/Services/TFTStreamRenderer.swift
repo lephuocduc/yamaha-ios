@@ -100,6 +100,32 @@ public final class OSMTileEngine {
             }
         }.resume()
     }
+    
+    // MARK: - Tải trước ngói bản đồ theo tuyến đường (Route Tile Pre-fetching)
+    // Giúp nạp sẵn toàn bộ ngói dọc hành trình vào RAM & Disk để khi chạy tốc độ cao (60-100km/h)
+    // bản đồ trên xe render tức thì, không bị trễ do mạng 4G chập chờn
+    public func prefetchRouteTiles(coordinates: [CLLocationCoordinate2D], zoom: Int = 17) {
+        guard !coordinates.isEmpty else { return }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            var visitedKeys = Set<String>()
+            let n = pow(2.0, Double(zoom))
+            
+            for coord in coordinates {
+                let x = Int((coord.longitude + 180.0) / 360.0 * n)
+                let latRad = coord.latitude * .pi / 180.0
+                let y = Int((1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / .pi) / 2.0 * n)
+                let key = "\(zoom)_\(x)_\(y)"
+                
+                if !visitedKeys.contains(key) {
+                    visitedKeys.insert(key)
+                    if self.getCachedTile(x: x, y: y, z: zoom) == nil {
+                        self.fetchTile(x: x, y: y, z: zoom) { _ in }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Renderer tạo khung hình Bản Đồ OpenStreetMap cho màn hình TFT xe máy Yamaha (Tối ưu hóa chạy ngầm, không nghẽn UI)
@@ -145,6 +171,7 @@ public final class TFTStreamRenderer: ObservableObject {
     private var lastRenderedInstruction: NavigationInstruction?
     private var lastRenderedSpeedKmh: Double = 0.0
     private var lastRenderedTelemetry: BikeTelemetry = BikeTelemetry()
+    private var lastPrefetchedRouteKey: String = ""
     
     public init(width: Int = 480, height: Int = 234) {
         self.targetWidth = width
@@ -170,7 +197,7 @@ public final class TFTStreamRenderer: ObservableObject {
         stopBackgroundStreaming()
         
         let timer = DispatchSource.makeTimerSource(queue: streamQueue)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(1500))
+        timer.schedule(deadline: .now(), repeating: .milliseconds(1200))
         timer.setEventHandler { [weak self, weak ccuManager, weak navEngine] in
             guard let self = self, let ccu = ccuManager, let nav = navEngine else { return }
             
@@ -251,6 +278,15 @@ public final class TFTStreamRenderer: ObservableObject {
         self.lastRenderedInstruction = instruction
         self.lastRenderedSpeedKmh = speedKmh
         self.lastRenderedTelemetry = telemetry
+        
+        // Tự động tải trước toàn bộ ngói bản đồ dọc lộ trình khi có tuyến đường mới
+        if let route = activeRoute, !route.coordinates.isEmpty {
+            let key = "\(route.coordinates.count)_\(Int(route.distanceMeters))"
+            if key != self.lastPrefetchedRouteKey {
+                self.lastPrefetchedRouteKey = key
+                OSMTileEngine.shared.prefetchRouteTiles(coordinates: route.coordinates, zoom: self.currentOsmZoom)
+            }
+        }
         
         // Ngăn chặn render chồng chéo gây tràn CPU
         guard !isRenderingFrame else {
