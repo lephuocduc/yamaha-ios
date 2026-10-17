@@ -21,6 +21,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
     @Published public var workLocation: SavedLocation?
     @Published public var favoriteLocations: [SavedLocation] = []
     @Published public var currentRoadName: String = "MyNMAX"
+    @Published public var currentHeading: Double = -1.0
     public var onRoadNameChanged: ((String) -> Void)?
     
     private let locationManager = CLLocationManager()
@@ -779,6 +780,12 @@ extension NavigationEngine: CLLocationManagerDelegate {
                 currentStepIndex += 1
                 updateCurrentInstruction()
             }
+        }
+    }
+    
+    public func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        if newHeading.headingAccuracy >= 0 {
+            currentHeading = newHeading.trueHeading >= 0 ? newHeading.trueHeading : newHeading.magneticHeading
         }
     }
     

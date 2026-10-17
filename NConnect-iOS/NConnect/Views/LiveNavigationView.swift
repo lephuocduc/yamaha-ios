@@ -32,12 +32,21 @@ public class RoutePointAnnotation: NSObject, MKAnnotation {
     }
 }
 
+// MARK: - Chế độ định hướng bản đồ (North-Up vs Heading Tracking)
+public enum MapOrientationMode: String, CaseIterable {
+    case headingTracking = "Heading Tracking" // Theo hướng xe chạy (3D)
+    case northUp = "North-Up"                 // Cố định phương Bắc (2D)
+}
+
 public struct LiveNavigationView: View {
     @ObservedObject var navEngine: NavigationEngine
     @ObservedObject var ccuManager: YamahaCCUManager
     @ObservedObject var streamRenderer: TFTStreamRenderer
     
     @State private var trackingMode: MapUserTrackingMode = .follow
+    @State private var orientationMode: MapOrientationMode = .headingTracking
+    @State private var showOrientationToast = false
+    @State private var toastMessage = ""
     @State private var showSearchSheet = false
     @State private var searchQuery = ""
     @State private var showTFTMiniPreview = true
@@ -64,6 +73,7 @@ public struct LiveNavigationView: View {
             OSMMapView(
                 navEngine: navEngine,
                 trackingMode: $trackingMode,
+                orientationMode: orientationMode,
                 route: navEngine.activeRoute,
                 coordA: effectivePointACoordinate,
                 coordB: pointB?.coordinate
@@ -80,6 +90,29 @@ public struct LiveNavigationView: View {
                     routePlannerHeader
                         .padding(.top, 10)
                         .padding(.horizontal)
+                }
+                
+                // Toast thông báo chuyển chế độ định hướng (North-Up / Heading Tracking)
+                if showOrientationToast {
+                    HStack(spacing: 8) {
+                        Image(systemName: orientationMode == .headingTracking ? "location.north.line.fill" : "location.north.fill")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(orientationMode == .headingTracking ? .cyan : .red)
+                        Text(toastMessage)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.black.opacity(0.88))
+                    .cornerRadius(20)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20)
+                            .stroke(orientationMode == .headingTracking ? Color.cyan.opacity(0.8) : Color.red.opacity(0.8), lineWidth: 1.2)
+                    )
+                    .shadow(radius: 6)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .padding(.top, 4)
                 }
                 
                 Spacer()
@@ -355,44 +388,101 @@ public struct LiveNavigationView: View {
     
     // MARK: - Nút điều khiển bản đồ & Zoom
     private var mapControlButtons: some View {
-        VStack(spacing: 10) {
-            Button(action: { trackingMode = .follow }) {
-                Image(systemName: "location.north.line.fill")
-                    .font(.title3)
-                    .foregroundColor(.cyan)
-                    .padding(12)
-                    .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.9))
-                    .clipShape(Circle())
-                    .shadow(radius: 4)
+        VStack(spacing: 8) {
+            // Nút Chuyển đổi Hướng bản đồ: North-Up ⇄ Heading Tracking
+            Button(action: {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                    if orientationMode == .headingTracking {
+                        orientationMode = .northUp
+                        toastMessage = "Cố định phương Bắc (North-Up)"
+                    } else {
+                        orientationMode = .headingTracking
+                        toastMessage = "Theo hướng xe chạy (Heading Tracking)"
+                    }
+                    streamRenderer.isNorthUp = (orientationMode == .northUp)
+                    trackingMode = .follow
+                    showOrientationToast = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    showOrientationToast = false
+                }
+            }) {
+                VStack(spacing: 2) {
+                    if orientationMode == .headingTracking {
+                        Image(systemName: "location.north.line.fill")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.cyan)
+                        Text("THEO XE")
+                            .font(.system(size: 8, weight: .heavy))
+                            .foregroundColor(.cyan)
+                    } else {
+                        Image(systemName: "location.north.fill")
+                            .font(.system(size: 18, weight: .heavy))
+                            .foregroundColor(.red)
+                        Text("BẮC")
+                            .font(.system(size: 8, weight: .heavy))
+                            .foregroundColor(.white)
+                    }
+                }
+                .frame(width: 46, height: 46)
+                .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.92))
+                .cornerRadius(12)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(orientationMode == .headingTracking ? Color.cyan.opacity(0.8) : Color.red.opacity(0.8), lineWidth: 1.5)
+                )
+                .shadow(color: Color.black.opacity(0.4), radius: 4)
             }
             
+            // Nút Định vị lại vị trí xe (Re-center)
+            Button(action: {
+                withAnimation {
+                    trackingMode = .follow
+                }
+            }) {
+                Image(systemName: trackingMode == .follow ? "location.fill" : "location")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(trackingMode == .follow ? .green : .gray)
+                    .frame(width: 46, height: 46)
+                    .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.92))
+                    .cornerRadius(12)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(trackingMode == .follow ? Color.green.opacity(0.8) : Color.gray.opacity(0.3), lineWidth: 1.2)
+                    )
+                    .shadow(color: Color.black.opacity(0.4), radius: 4)
+            }
+            
+            // Nút Phóng to (+)
             Button(action: { streamRenderer.zoomIn() }) {
                 Image(systemName: "plus")
-                    .font(.title3.bold())
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.white)
-                    .padding(12)
-                    .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.9))
-                    .clipShape(Circle())
+                    .frame(width: 46, height: 46)
+                    .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.92))
+                    .cornerRadius(12)
                     .shadow(radius: 4)
             }
             
+            // Nút Thu nhỏ (-)
             Button(action: { streamRenderer.zoomOut() }) {
                 Image(systemName: "minus")
-                    .font(.title3.bold())
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.white)
-                    .padding(12)
-                    .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.9))
-                    .clipShape(Circle())
+                    .frame(width: 46, height: 46)
+                    .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.92))
+                    .cornerRadius(12)
                     .shadow(radius: 4)
             }
             
+            // Nút Bật/Tắt xem trước màn hình TFT trên xe
             Button(action: { showTFTMiniPreview.toggle() }) {
                 Image(systemName: showTFTMiniPreview ? "display" : "display.trianglebadge.exclamationmark")
-                    .font(.title3)
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundColor(showTFTMiniPreview ? .green : .gray)
-                    .padding(12)
-                    .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.9))
-                    .clipShape(Circle())
+                    .frame(width: 46, height: 46)
+                    .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.92))
+                    .cornerRadius(12)
                     .shadow(radius: 4)
             }
         }
@@ -541,6 +631,8 @@ public struct LiveNavigationView: View {
         navEngine.startActiveNavigation()
         ccuManager.startStreaming()
         trackingMode = .follow
+        orientationMode = .headingTracking
+        streamRenderer.isNorthUp = false
     }
     
     private func clearRoute() {
@@ -635,6 +727,7 @@ public class CustomOSMTileOverlay: MKTileOverlay {
 public struct OSMMapView: UIViewRepresentable {
     @ObservedObject var navEngine: NavigationEngine
     @Binding var trackingMode: MapUserTrackingMode
+    var orientationMode: MapOrientationMode
     var route: OSMRoute?
     var coordA: CLLocationCoordinate2D?
     var coordB: CLLocationCoordinate2D?
@@ -642,12 +735,14 @@ public struct OSMMapView: UIViewRepresentable {
     public init(
         navEngine: NavigationEngine,
         trackingMode: Binding<MapUserTrackingMode>,
+        orientationMode: MapOrientationMode = .headingTracking,
         route: OSMRoute?,
         coordA: CLLocationCoordinate2D? = nil,
         coordB: CLLocationCoordinate2D? = nil
     ) {
         self.navEngine = navEngine
         self._trackingMode = trackingMode
+        self.orientationMode = orientationMode
         self.route = route
         self.coordA = coordA
         self.coordB = coordB
@@ -675,20 +770,72 @@ public struct OSMMapView: UIViewRepresentable {
     public func updateUIView(_ uiView: MKMapView, context: Context) {
         context.coordinator.updateRoute(on: uiView, newRoute: route, coordA: coordA, coordB: coordB)
         
-        if trackingMode == .follow, navEngine.isNavigating, let loc = navEngine.currentLocation {
-            // Camera dẫn đường tốc độ cao (Speed-Adaptive 3D Camera):
-            // Tự động xoay theo hướng di chuyển (Heading-up) và mở rộng tầm nhìn khi chạy nhanh (60-100km/h)
+        if trackingMode == .follow, let loc = navEngine.currentLocation {
             let speedKmh = max(0.0, loc.speed * 3.6)
-            let viewDistance: CLLocationDistance = speedKmh > 65 ? 850.0 : (speedKmh > 35 ? 600.0 : 420.0)
-            let pitch: CGFloat = speedKmh > 15 ? 45.0 : 0.0 // Góc nhìn 3D thể thao khi xe lăn bánh
-            let heading = (loc.course >= 0) ? loc.course : uiView.camera.heading
             
-            let camera = MKMapCamera(
-                lookingAtCenter: loc.coordinate,
-                fromDistance: viewDistance,
-                pitch: pitch,
-                heading: heading
-            )
+            let camera: MKMapCamera
+            switch orientationMode {
+            case .headingTracking:
+                // Theo hướng xe chạy (Heading Tracking):
+                // Bản đồ xoay mượt mà theo góc di chuyển của xe (course) hoặc la bàn điện tử
+                let effectiveHeading: CLLocationDirection = {
+                    if loc.course >= 0 && speedKmh >= 3.0 {
+                        return loc.course
+                    } else if navEngine.currentHeading >= 0 {
+                        return navEngine.currentHeading
+                    } else {
+                        return uiView.camera.heading
+                    }
+                }()
+                
+                // Góc nghiêng 3D thể thao khi xe lăn bánh (Pitch)
+                let pitch: CGFloat = {
+                    if navEngine.isNavigating {
+                        return speedKmh > 15.0 ? 45.0 : 30.0
+                    } else {
+                        return speedKmh > 15.0 ? 35.0 : 0.0
+                    }
+                }()
+                
+                // Tầm nhìn mở rộng thích ứng tốc độ cao (Speed-Adaptive Distance)
+                let viewDistance: CLLocationDistance = {
+                    if speedKmh > 65.0 {
+                        return 850.0
+                    } else if speedKmh > 35.0 {
+                        return 600.0
+                    } else {
+                        return 420.0
+                    }
+                }()
+                
+                camera = MKMapCamera(
+                    lookingAtCenter: loc.coordinate,
+                    fromDistance: viewDistance,
+                    pitch: pitch,
+                    heading: effectiveHeading
+                )
+                
+            case .northUp:
+                // Cố định phương Bắc (North-Up):
+                // Bản đồ luôn hướng thẳng phương Bắc (heading = 0.0°), góc nhìn phẳng 2D từ trên xuống (pitch = 0.0°)
+                let viewDistance: CLLocationDistance = {
+                    if speedKmh > 65.0 {
+                        return 950.0
+                    } else if speedKmh > 35.0 {
+                        return 700.0
+                    } else {
+                        return 500.0
+                    }
+                }()
+                
+                camera = MKMapCamera(
+                    lookingAtCenter: loc.coordinate,
+                    fromDistance: viewDistance,
+                    pitch: 0.0,
+                    heading: 0.0
+                )
+            }
+            
             uiView.setCamera(camera, animated: true)
         }
     }
@@ -705,6 +852,18 @@ public struct OSMMapView: UIViewRepresentable {
         
         init(_ parent: OSMMapView) {
             self.parent = parent
+        }
+        
+        public func mapView(_ mapView: MKMapView, regionWillChangeAnimated animated: Bool) {
+            // Khi người dùng chạm kéo bản đồ thủ công bằng ngón tay
+            let isUserDrag = mapView.subviews.first?.gestureRecognizers?.contains(where: {
+                $0.state == .began || $0.state == .changed
+            }) ?? false
+            if isUserDrag {
+                DispatchQueue.main.async { [weak self] in
+                    self?.parent.trackingMode = .none
+                }
+            }
         }
         
         public func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {

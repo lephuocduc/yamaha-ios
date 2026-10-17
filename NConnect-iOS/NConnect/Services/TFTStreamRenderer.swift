@@ -165,6 +165,9 @@ public final class TFTStreamRenderer: ObservableObject {
     private var streamSourceTimer: DispatchSourceTimer?
     private let streamQueue = DispatchQueue(label: "com.mynmax.streamQueue", qos: .userInitiated)
     
+    // Chế độ xoay bản đồ: Heading Tracking (theo xe) hoặc North-Up (cố định hướng Bắc)
+    @Published public var isNorthUp: Bool = false
+    
     // Lưu thông số gần nhất để khi bấm Zoom có thể render lại tức thì
     private var lastRenderedLocation: CLLocation?
     private var lastRenderedRoute: OSMRoute?
@@ -343,13 +346,14 @@ public final class TFTStreamRenderer: ObservableObject {
             ctx.fill(CGRect(origin: .zero, size: size))
             
             let heading = loc.course >= 0 ? loc.course : 0.0
-            let headingRad = CGFloat(heading * .pi / 180.0)
+            let isNorth = self.isNorthUp
+            let mapRotationRad = isNorth ? 0.0 : CGFloat(heading * .pi / 180.0)
             let centerPt = CGPoint(x: CGFloat(self.targetWidth) / 2.0, y: CGFloat(self.targetHeight) / 2.0)
             
             ctx.saveGState()
-            // Xoay hướng di chuyển của xe luôn hướng lên trên màn hình TFT (Heading-up)
+            // Xoay hướng di chuyển của xe luôn hướng lên trên màn hình TFT (hoặc giữ cố định phương Bắc nếu ở chế độ North-Up)
             ctx.translateBy(x: centerPt.x, y: centerPt.y)
-            ctx.rotate(by: -headingRad)
+            ctx.rotate(by: -mapRotationRad)
             ctx.translateBy(x: -bikeCanvasX, y: -bikeCanvasY)
             
             // 2. Vẽ 9 ngói OpenStreetMap (3x3 grid) xung quanh vị trí xe
@@ -381,14 +385,17 @@ public final class TFTStreamRenderer: ObservableObject {
             
             ctx.restoreGState()
             
-            // 4. Vẽ biểu tượng xe máy trung tâm màn hình (Mũi tên xanh Cyan luôn tiến về phía trước)
-            self.drawMotorcycleMarker(in: ctx, center: centerPt)
+            // 4. Vẽ biểu tượng xe máy trung tâm màn hình (Mũi tên xanh Cyan)
+            self.drawMotorcycleMarker(in: ctx, center: centerPt, bikeHeading: heading, isNorthUp: isNorth)
             
             // 5. Thanh chỉ dẫn điều hướng Turn-by-Turn phía trên (khoảng cách + tên đường)
             self.drawTopNavigationBanner(in: ctx, size: size, instruction: instruction)
             
             // 6. Nhãn bản quyền bắt buộc của OpenStreetMap (nhỏ gọn, thanh lịch)
             self.drawOSMAttribution(in: ctx, size: size)
+            
+            // 7. La bàn mini định hướng trên xe máy (North / Heading indicator)
+            self.drawTFTCompass(in: ctx, size: size, heading: heading, isNorthUp: isNorth)
             
             let finalImage = UIGraphicsGetImageFromCurrentImageContext()
             UIGraphicsEndImageContext()
@@ -442,9 +449,14 @@ public final class TFTStreamRenderer: ObservableObject {
     }
     
     // MARK: - Vẽ biểu tượng xe máy trung tâm
-    private func drawMotorcycleMarker(in ctx: CGContext, center: CGPoint) {
+    private func drawMotorcycleMarker(in ctx: CGContext, center: CGPoint, bikeHeading: Double = 0.0, isNorthUp: Bool = false) {
         ctx.saveGState()
         ctx.translateBy(x: center.x, y: center.y)
+        
+        // Nếu ở chế độ North-Up: Bản đồ không xoay, mũi tên xe sẽ xoay theo góc hướng xe chạy (bikeHeading)
+        if isNorthUp {
+            ctx.rotate(by: CGFloat(bikeHeading * .pi / 180.0))
+        }
         
         // Vòng tròn hào quang phát sáng
         ctx.setFillColor(UIColor(red: 0.0, green: 0.6, blue: 1.0, alpha: 0.25).cgColor)
@@ -464,6 +476,57 @@ public final class TFTStreamRenderer: ObservableObject {
         
         ctx.setFillColor(UIColor.white.cgColor)
         arrow.fill()
+        
+        ctx.restoreGState()
+    }
+    
+    // MARK: - La bàn mini định hướng trên xe máy (North / Heading indicator)
+    private func drawTFTCompass(in ctx: CGContext, size: CGSize, heading: Double, isNorthUp: Bool) {
+        let compassCenter = CGPoint(x: 28, y: size.height - 24)
+        
+        ctx.saveGState()
+        ctx.translateBy(x: compassCenter.x, y: compassCenter.y)
+        
+        // Vòng tròn nền
+        ctx.setFillColor(UIColor(white: 0.1, alpha: 0.85).cgColor)
+        ctx.fillEllipse(in: CGRect(x: -13, y: -13, width: 26, height: 26))
+        
+        ctx.setStrokeColor(UIColor(white: 0.35, alpha: 0.8).cgColor)
+        ctx.setLineWidth(1.0)
+        ctx.strokeEllipse(in: CGRect(x: -13, y: -13, width: 26, height: 26))
+        
+        if isNorthUp {
+            // Khi ở chế độ North-Up: Chữ N đỏ đậm hướng lên trên
+            let nText = "N" as NSString
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 11, weight: .heavy),
+                .foregroundColor: UIColor.systemRed
+            ]
+            let strSize = nText.size(withAttributes: attrs)
+            nText.draw(at: CGPoint(x: -strSize.width / 2.0, y: -strSize.height / 2.0), withAttributes: attrs)
+        } else {
+            // Khi ở chế độ Heading Tracking: Kim la bàn xoay chỉ hướng Bắc thực tế
+            let northRad = CGFloat(-heading * .pi / 180.0)
+            ctx.rotate(by: northRad)
+            
+            // Mũi tên đỏ chỉ Bắc
+            let redPath = UIBezierPath()
+            redPath.move(to: CGPoint(x: 0, y: -9))
+            redPath.addLine(to: CGPoint(x: 3.5, y: 0))
+            redPath.addLine(to: CGPoint(x: -3.5, y: 0))
+            redPath.close()
+            ctx.setFillColor(UIColor.systemRed.cgColor)
+            redPath.fill()
+            
+            // Mũi tên trắng chỉ Nam
+            let whitePath = UIBezierPath()
+            whitePath.move(to: CGPoint(x: 0, y: 9))
+            whitePath.addLine(to: CGPoint(x: 3.5, y: 0))
+            whitePath.addLine(to: CGPoint(x: -3.5, y: 0))
+            whitePath.close()
+            ctx.setFillColor(UIColor(white: 0.85, alpha: 1.0).cgColor)
+            whitePath.fill()
+        }
         
         ctx.restoreGState()
     }

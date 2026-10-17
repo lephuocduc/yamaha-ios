@@ -188,7 +188,7 @@ public struct SettingsView: View {
                     HStack {
                         Text("Phiên bản")
                         Spacer()
-                        Text("0.5.2 (iOS Port)")
+                        Text("0.5.3 (Build 29)")
                             .foregroundColor(.secondary)
                     }
                     Text("MyNMAX - Dẫn đường và thông báo cho xe máy Yamaha NMAX có màn hình TFT.")
