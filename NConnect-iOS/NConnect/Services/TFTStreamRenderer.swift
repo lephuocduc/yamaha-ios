@@ -174,6 +174,7 @@ public final class TFTStreamRenderer: ObservableObject {
     private var lastRenderedInstruction: NavigationInstruction?
     private var lastRenderedSpeedKmh: Double = 0.0
     private var lastRenderedTelemetry: BikeTelemetry = BikeTelemetry()
+    private var lastRenderedIsRerouting: Bool = false
     private var lastPrefetchedRouteKey: String = ""
     
     public init(width: Int = 480, height: Int = 234) {
@@ -217,7 +218,8 @@ public final class TFTStreamRenderer: ObservableObject {
                 activeRoute: nav.activeRoute,
                 instruction: nav.currentInstruction,
                 speedKmh: displaySpeed,
-                telemetry: ccu.telemetry
+                telemetry: ccu.telemetry,
+                isRerouting: nav.isRerouting
             ) { frameData in
                 guard let data = frameData else { return }
                 if ccu.isMFiConnected || ccu.state == .streaming {
@@ -263,7 +265,8 @@ public final class TFTStreamRenderer: ObservableObject {
             activeRoute: lastRenderedRoute,
             instruction: inst,
             speedKmh: lastRenderedSpeedKmh,
-            telemetry: lastRenderedTelemetry
+            telemetry: lastRenderedTelemetry,
+            isRerouting: lastRenderedIsRerouting
         ) { _ in }
     }
     
@@ -274,6 +277,7 @@ public final class TFTStreamRenderer: ObservableObject {
         instruction: NavigationInstruction,
         speedKmh: Double,
         telemetry: BikeTelemetry,
+        isRerouting: Bool = false,
         completion: @escaping (Data?) -> Void
     ) {
         self.lastRenderedLocation = location
@@ -281,6 +285,7 @@ public final class TFTStreamRenderer: ObservableObject {
         self.lastRenderedInstruction = instruction
         self.lastRenderedSpeedKmh = speedKmh
         self.lastRenderedTelemetry = telemetry
+        self.lastRenderedIsRerouting = isRerouting
         
         // Tự động tải trước toàn bộ ngói bản đồ dọc lộ trình khi có tuyến đường mới
         if let route = activeRoute, !route.coordinates.isEmpty {
@@ -389,7 +394,7 @@ public final class TFTStreamRenderer: ObservableObject {
             self.drawMotorcycleMarker(in: ctx, center: centerPt, bikeHeading: heading, isNorthUp: isNorth)
             
             // 5. Thanh chỉ dẫn điều hướng Turn-by-Turn phía trên (khoảng cách + tên đường)
-            self.drawTopNavigationBanner(in: ctx, size: size, instruction: instruction)
+            self.drawTopNavigationBanner(in: ctx, size: size, instruction: instruction, isRerouting: isRerouting)
             
             // 6. Nhãn bản quyền bắt buộc của OpenStreetMap (nhỏ gọn, thanh lịch)
             self.drawOSMAttribution(in: ctx, size: size)
@@ -532,11 +537,27 @@ public final class TFTStreamRenderer: ObservableObject {
     }
     
     // MARK: - Banner thông tin dẫn đường Turn-by-Turn phía trên màn hình TFT
-    private func drawTopNavigationBanner(in ctx: CGContext, size: CGSize, instruction: NavigationInstruction) {
-        guard instruction.isNavigating else { return }
+    private func drawTopNavigationBanner(in ctx: CGContext, size: CGSize, instruction: NavigationInstruction, isRerouting: Bool = false) {
+        guard instruction.isNavigating || isRerouting else { return }
         
         let bannerRect = CGRect(x: 10, y: 6, width: size.width - 20, height: 46)
         let bannerPath = UIBezierPath(roundedRect: bannerRect, cornerRadius: 8)
+        
+        if isRerouting {
+            ctx.setFillColor(UIColor(red: 0.16, green: 0.12, blue: 0.04, alpha: 0.94).cgColor)
+            bannerPath.fill()
+            ctx.setStrokeColor(UIColor.systemYellow.cgColor)
+            ctx.setLineWidth(1.8)
+            bannerPath.stroke()
+            
+            let text = "⚠️ ĐANG TÍNH LẠI LỘ TRÌNH..."
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 18, weight: .heavy),
+                .foregroundColor: UIColor.systemYellow
+            ]
+            text.draw(at: CGPoint(x: 20, y: 12), withAttributes: attrs)
+            return
+        }
         
         ctx.setFillColor(UIColor(white: 0.08, alpha: 0.92).cgColor)
         bannerPath.fill()

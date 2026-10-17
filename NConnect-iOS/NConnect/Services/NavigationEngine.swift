@@ -22,7 +22,13 @@ public final class NavigationEngine: NSObject, ObservableObject {
     @Published public var favoriteLocations: [SavedLocation] = []
     @Published public var currentRoadName: String = "MyNMAX"
     @Published public var currentHeading: Double = -1.0
+    @Published public var isRerouting: Bool = false
     public var onRoadNameChanged: ((String) -> Void)?
+    
+    // Lưu thông số để tự động tính lại lộ trình khi đi chệch hướng (Auto-Rerouting)
+    private var currentDestinationCoordinate: CLLocationCoordinate2D?
+    private var lastRerouteTime: Date = .distantPast
+    private var offRouteConsecutiveTicks: Int = 0
     
     private let locationManager = CLLocationManager()
     private let networkSession: URLSession
@@ -348,6 +354,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
     
     // MARK: - Lập lộ trình chỉ đường bằng Valhalla Routing Engine (Tối ưu xe máy)
     public func calculateRoute(from origin: CLLocationCoordinate2D? = nil, to destination: CLLocationCoordinate2D, autoStart: Bool = true) {
+        self.currentDestinationCoordinate = destination
         let start = origin ?? currentLocation?.coordinate
         guard let startCoord = start else {
             print("[Nav] Chưa có vị trí GPS hiện tại hoặc Điểm A để lập lộ trình")
@@ -391,6 +398,8 @@ public final class NavigationEngine: NSObject, ObservableObject {
     
     private func applyCalculatedRoute(_ route: OSMRoute, autoStart: Bool = true) {
         self.isCalculatingRoute = false
+        self.isRerouting = false
+        self.offRouteConsecutiveTicks = 0
         self.activeRoute = route
         self.routeSteps = route.steps
         self.currentStepIndex = 0
@@ -661,6 +670,9 @@ public final class NavigationEngine: NSObject, ObservableObject {
     
     public func stopNavigation() {
         isNavigating = false
+        isRerouting = false
+        currentDestinationCoordinate = nil
+        offRouteConsecutiveTicks = 0
         activeRoute = nil
         routeSteps.removeAll()
         currentStepIndex = 0
@@ -853,7 +865,88 @@ extension NavigationEngine: CLLocationManagerDelegate {
                 currentStepIndex += 1
                 updateCurrentInstruction()
             }
+            
+            // TỰ ĐỘNG PHÁT HIỆN ĐI CHỆCH LỘ TRÌNH & VẼ LẠI ĐƯỜNG ĐI (Auto-Rerouting):
+            checkAndRerouteIfOffTrack(currentLoc: loc)
         }
+    }
+    
+    // MARK: - Kiểm tra chệch đường & Tự động vẽ lại lộ trình (Auto-Rerouting)
+    private func checkAndRerouteIfOffTrack(currentLoc: CLLocation) {
+        guard let dest = currentDestinationCoordinate,
+              !isCalculatingRoute,
+              Date().timeIntervalSince(lastRerouteTime) > 4.5,
+              let route = activeRoute,
+              route.coordinates.count >= 2 else { return }
+        
+        // Tính khoảng cách tối thiểu từ vị trí xe tới toàn bộ polyline lộ trình
+        let distToRoute = distanceToActiveRoute(from: currentLoc)
+        let offRouteThreshold: CLLocationDistance = 45.0 // Ngưỡng chệch đường 45 mét
+        
+        if distToRoute > offRouteThreshold {
+            offRouteConsecutiveTicks += 1
+            // Cần 2 lần đo liên tiếp (> 2 giây) xác nhận xe đã thật sự rẽ sang đường khác
+            // để tránh sai số GPS khi đi dưới bóng râm hoặc nhà cao tầng
+            if offRouteConsecutiveTicks >= 2 {
+                print("[Nav] ⚠️ Phát hiện xe đi chệch lộ trình (\(Int(distToRoute))m > \(Int(offRouteThreshold))m). Đang tự động vẽ lại đường đi mới...")
+                lastRerouteTime = Date()
+                offRouteConsecutiveTicks = 0
+                isRerouting = true
+                
+                // Tự động yêu cầu Valhalla tính lại tuyến đường tối ưu từ vị trí xe hiện tại
+                calculateRoute(from: currentLoc.coordinate, to: dest, autoStart: true)
+            }
+        } else {
+            offRouteConsecutiveTicks = 0
+            if isRerouting {
+                isRerouting = false
+            }
+        }
+    }
+    
+    // MARK: - Tính khoảng cách vuông góc tối thiểu từ vị trí xe tới lộ trình (Point-to-Polyline)
+    private func distanceToActiveRoute(from loc: CLLocation) -> CLLocationDistance {
+        guard let coords = activeRoute?.coordinates, coords.count >= 2 else { return 0 }
+        
+        var minDistance: CLLocationDistance = .greatestFiniteMagnitude
+        let p = loc.coordinate
+        
+        for i in 0..<(coords.count - 1) {
+            let d = distanceToSegment(point: p, a: coords[i], b: coords[i + 1])
+            if d < minDistance {
+                minDistance = d
+            }
+        }
+        return minDistance
+    }
+    
+    private func distanceToSegment(point: CLLocationCoordinate2D, a: CLLocationCoordinate2D, b: CLLocationCoordinate2D) -> CLLocationDistance {
+        let latMid = ((a.latitude + b.latitude) / 2.0) * .pi / 180.0
+        let mPerDegLat: Double = 111132.92
+        let mPerDegLon: Double = 111412.84 * cos(latMid)
+        
+        let px = point.longitude * mPerDegLon
+        let py = point.latitude * mPerDegLat
+        let ax = a.longitude * mPerDegLon
+        let ay = a.latitude * mPerDegLat
+        let bx = b.longitude * mPerDegLon
+        let by = b.latitude * mPerDegLat
+        
+        let dx = bx - ax
+        let dy = by - ay
+        let lenSq = dx * dx + dy * dy
+        
+        if lenSq == 0 {
+            return hypot(px - ax, py - ay)
+        }
+        
+        var t = ((px - ax) * dx + (py - ay) * dy) / lenSq
+        t = max(0.0, min(1.0, t))
+        
+        let projX = ax + t * dx
+        let projY = ay + t * dy
+        
+        return hypot(px - projX, py - projY)
     }
     
     public func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {

@@ -485,23 +485,38 @@ public struct LiveNavigationView: View {
     // MARK: - HUD Dẫn đường Turn-by-Turn (Khi xe đang chạy)
     private var navigationHUD: some View {
         HStack(spacing: 12) {
-            Image(systemName: navEngine.currentInstruction.direction.iconName)
-                .font(.system(size: 30, weight: .heavy))
-                .foregroundColor(.green)
-            
-            HStack(spacing: 8) {
-                Text(navEngine.currentInstruction.formattedDistance)
-                    .font(.system(size: 22, weight: .heavy))
+            if navEngine.isRerouting {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .yellow))
+                    .scaleEffect(1.1)
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("ĐANG TÍNH LẠI LỘ TRÌNH...")
+                        .font(.system(size: 16, weight: .heavy))
+                        .foregroundColor(.yellow)
+                    Text("Phát hiện bạn đã rẽ sang hướng khác")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white.opacity(0.85))
+                }
+            } else {
+                Image(systemName: navEngine.currentInstruction.direction.iconName)
+                    .font(.system(size: 30, weight: .heavy))
                     .foregroundColor(.green)
                 
-                Text("•")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(.gray)
-                
-                Text(navEngine.currentInstruction.nextRoadName.isEmpty ? "Đang đi theo lộ trình" : navEngine.currentInstruction.nextRoadName)
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    Text(navEngine.currentInstruction.formattedDistance)
+                        .font(.system(size: 22, weight: .heavy))
+                        .foregroundColor(.green)
+                    
+                    Text("•")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.gray)
+                    
+                    Text(navEngine.currentInstruction.nextRoadName.isEmpty ? "Đang đi theo lộ trình" : navEngine.currentInstruction.nextRoadName)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                }
             }
             
             Spacer()
@@ -517,6 +532,10 @@ public struct LiveNavigationView: View {
         .padding(14)
         .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.95))
         .cornerRadius(16)
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(navEngine.isRerouting ? Color.yellow.opacity(0.8) : Color.clear, lineWidth: 1.5)
+        )
         .shadow(radius: 8)
     }
     
