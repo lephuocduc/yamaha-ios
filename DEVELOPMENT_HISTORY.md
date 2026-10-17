@@ -50,17 +50,25 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
 
 ### 🔴 LỖI 1: Chữ `▲ Road` ở thanh Footer màn hình xe không đổi
 * **Triệu chứng**: Dưới đáy màn hình TFT luôn hiện chữ `▲ Road` mặc định, không hiển thị được tên con đường xe đang chạy qua.
-* **Nguyên nhân gốc rễ**:
-  1. Chữ `▲ Road` là text mặc định nạp sẵn trong ROM xe khi xe chưa nhận được gói tin tên đường hợp lệ từ CCU.
-  2. Trong các phiên bản đầu, hàm `updateCurrentRoadNameOnTFT` chỉ được gọi khi đang có lộ trình (`isNavigating && !road.isEmpty`). Khi người dùng chạy xe tự do (không bật chỉ đường tới điểm cụ thể), app không hề phát gói tin tên đường xuống xe.
-  3. Code cũ từng gửi xen kẽ các gói Service 1 (Cmd 3) và Service 14. Bộ firmware của màn hình xe khi nhận các gói thừa này sẽ tự động reset chu kỳ chuỗi hiển thị về mặc định (`Road`).
-* **Giải pháp chuẩn xác**:
-  - Gửi liên tục và định kỳ chuỗi 3 gói tin chuẩn của Garmin (theo hàm `Lm3/r;->l` offset `1858112`):
-    1. Service 2: `[0x01, 0x00]` (Init/Mode).
-    2. Service 4: `[s4, length, utf8_road_name...]` (Tên đường dạng chuỗi UTF-8).
-    3. Service 2: `[0x03, etaMinLow, etaMinHigh, 0x00]` (Thông tin thời gian/ETA).
-  - Áp dụng cơ chế fallback: Khi đang chờ định vị hoặc geocoding chưa có tên đường cụ thể, phát tên mặc định ("MyNMAX" hoặc "Yamaha") để xóa ngay chữ `▲ Road` trong ROM xe.
-  - Tuyệt đối không gửi chèn Service 1 hoặc Service 14 vào giữa chuỗi phát tên đường này.
+* **Nguyên nhân gốc rễ (Phân tích dịch ngược DEX chuyên sâu)**:
+  1. Chữ `▲ Road` là chuỗi placeholder nạp sẵn trong ROM xe khi xe chưa nhận được lệnh cập nhật chuỗi tên đường hợp lệ từ CCU.
+  2. Dịch ngược chi tiết các hàm trong `classes.dex` của Android:
+     - `Lo3/c;->f` (cOff `1980160`): Nhận tên đường (String) → chuẩn hoá bỏ dấu tiếng Việt → chuyển thành mảng bytes UTF-8 ASCII → gọi `Lo3/c;->b(roadBytes, 3, 1)`. **Đây chính là Service 3 (PDT 1) chuyên trách gửi chuỗi tên đường trực tiếp cho màn hình xe!**
+     - `Lo3/c;->j` (cOff `1980568`): Nhận chuỗi văn bản → đóng gói `[0x07, 0x1A, len, 0x00] + bytes` → gọi `Lo3/c;->b(payload, 14, 1)`. **Đây là Service 14 (PDT 1) với lệnh con 0x1A để hiển thị văn bản lên thanh trạng thái đồng hồ xe!**
+     - `Lm3/r;->d` (cOff `1854372`): Khi chuẩn bị chuyển thông tin rẽ, gọi tuần tự:
+       `Lo3/c;->j("300 m")` (Service 14) → `Lo3/c;->g()` (Service 2 `[1, 0]`) → `Lo3/c;->f(road)` (Service 3) → `Lo3/c;->j("")` (Service 14).
+     - `Lm3/r;->l` (cOff `1858112`): Gửi Service 4 (PDT 1: `[icon, distLE(4B), unitLen, roadLen, unitBytes, roadBytes]`) và Service 2 (PDT 1: ETA).
+  3. **Lỗi trong code cũ**:
+     - Trong chuỗi bắt tay `setup` ban đầu, code cũ gửi `(3, 1, [])` với mảng byte rỗng (`roadBytes = []`)! Do nhận chuỗi rỗng nên xe giữ nguyên chữ `Road` mặc định trong ROM.
+     - Trong hàm `updateCurrentRoadNameOnTFT`, code cũ chỉ gửi Service 2 và Service 4, **hoàn toàn bỏ quên Service 3 và Service 14**!
+* **Giải pháp chuẩn xác triệt để**:
+  - Trong `runNaviLiteHandshake`: Luôn nạp tên đường khởi tạo hợp lệ (mặc định `"YAMAHA"`), gửi `(3, 1, roadBytes)` thực tế và `(14, 1, roadPayload)` trong setup burst.
+  - Trong `updateCurrentRoadNameOnTFT`: Gửi đầy đủ tổ hợp 5 gói tin chuẩn:
+    1. Service 2 (PDT 0): `[1, 0]` (Bật chế độ dẫn đường Active Navigation).
+    2. Service 3 (PDT 1): `roadBytes` (Gửi trực tiếp chuỗi tên đường dạng UTF-8 ASCII theo chuẩn `Lo3/c;->f`).
+    3. Service 4 (PDT 1): `s4` (Gửi mũi tên maneuver, khoảng cách float LE, đơn vị, tên đường theo chuẩn `Lm3/r;->l`).
+    4. Service 14 (PDT 1): `[0x07, 0x1A, len, 0x00] + roadBytes` (Lệnh Sub 0x1A hiển thị tên đường theo chuẩn `Lo3/c;->j`).
+    5. Service 2 (PDT 1): `arrivePayload` (Thông tin giờ đến ETA trong ngày).
 
 ---
 
@@ -119,20 +127,22 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
 
 ---
 
-### 🔴 LỖI 7: Quản lý thông báo tin nhắn và cuộc gọi đến
+### 🔴 LỖI 7: Quản lý thông báo ứng dụng (Zalo, Messenger, SMS...) và cuộc gọi đến
 * **Cơ chế hoạt động trên iOS**:
-  1. **Tin nhắn (SMS / iMessage / Zalo / Messenger)**:
-     - Do chính sách bảo mật sandbox của Apple, ứng dụng bên thứ ba không được phép đọc trực tiếp nội dung tin nhắn của ứng dụng khác.
-     - Thay vào đó, iOS cung cấp dịch vụ Bluetooth chuẩn **ANCS (Apple Notification Center Service)** ở cấp độ hệ điều hành.
-     - **Yêu cầu cài đặt**: Vào Cài đặt iPhone → Bluetooth → chọn tên xe Yamaha → Bật **"Chia sẻ thông báo hệ thống"**. Khi đó iOS sẽ tự động chuyển tiếp toàn bộ thông báo lên màn hình xe.
+  1. **Thông báo ứng dụng (SMS / iMessage / Zalo / Messenger / Telegram...)**:
+     - Do chính sách bảo mật sandbox của Apple, ứng dụng bên thứ ba không thể nghe trộm trực tiếp thông báo push của các ứng dụng khác.
+     - **Giải pháp đa tầng thông minh**:
+       * **Kênh ANCS (Apple Notification Center Service)**: Hỗ trợ chuyển tiếp tự động thông báo của iOS sang cụm đồng hồ xe khi bật "Chia sẻ thông báo hệ thống" trong cài đặt Bluetooth.
+       * **Kênh URL Scheme (`mynmax://notify?app=Zalo&sender=Nam&message=Alo`)**: Cho phép người dùng tạo Phím tắt iOS (Shortcuts Automation) để tự động bắn thông báo tức thì lên màn hình xe khi nhận tin nhắn.
+       * **Quản lý thời gian hiển thị (`AppNotificationManager`)**: Cho phép tuỳ chỉnh số giây hiển thị trên màn hình xe (mặc định 7 giây, cấu hình từ 3 - 30 giây trong Cài đặt). Sau thời gian này, thông báo tự động ẩn và trả lại bản đồ dẫn đường.
   2. **Cuộc gọi đến & Điều khiển bằng phím cùm xe**:
-     - Tích hợp `CallNotificationManager` sử dụng framework `CallKit` (`CXCallObserver`).
-     - Khi có cuộc gọi đến (`!call.hasConnected && !call.isOutgoing`):
-       * Kích hoạt `isCallRinging = true`.
-       * Vẽ banner cảnh báo cuộc gọi màu đỏ neon nổi bật ở góc trên màn hình TFT xe: `📞 CUỘC GỌI ĐẾN` - `[+] TRẢ LỜI   [-] TỪ CHỐI`.
-       * Vẽ banner tương ứng trên giao diện iPhone.
-       * Khi người dùng nhấn phím **(+)** trên cùm xe: Thực hiện lệnh trả lời cuộc gọi (`CXAnswerCallAction`).
-       * Khi người dùng nhấn phím **(-)** trên cùm xe: Thực hiện lệnh từ chối / ngắt cuộc gọi (`CXEndCallAction`).
+     - Tích hợp `CallNotificationManager` sử dụng `CallKit` (`CXCallObserver`) kết hợp trích xuất Caller ID qua `TelephonyUtilities` (`TUCallCenter`).
+     - **Giao diện hiển thị chuẩn theo yêu cầu**:
+       * Nền banner: Màu **Xanh lá cây (Emerald Green)** nổi bật, tương phản cao.
+       * Nội dung: Hiển thị nổi bật **Tên người gọi hoặc Số điện thoại** (không cần chú thích phím rườm rà).
+       * Thời gian hiển thị: **Hiển thị liên tục** suốt quá trình đổ chuông và đàm thoại cho tới khi cuộc gọi kết thúc.
+       * Khi người dùng nhấn phím **(+)** trên cùm xe: Nhận / Trả lời cuộc gọi (`CXAnswerCallAction`).
+       * Khi người dùng nhấn phím **(-)** trên cùm xe: Từ chối / Kết thúc cuộc gọi (`CXEndCallAction`).
        * Khi cuộc gọi kết thúc: Banner tự động biến mất, phím (+) và (-) lập tức quay về chức năng phóng to / thu nhỏ bản đồ.
 
 ---

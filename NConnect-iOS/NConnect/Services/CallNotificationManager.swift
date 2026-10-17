@@ -29,28 +29,83 @@ public final class CallNotificationManager: NSObject, ObservableObject, CXCallOb
                 self.isCallRinging = false
                 self.isCallConnected = false
                 self.currentCallUUID = nil
-                self.callerName = "Cuộc gọi kết thúc"
                 YamahaCCUManager.shared?.log("[Cuộc gọi] ⏹ Cuộc gọi đã kết thúc")
             } else if !call.hasConnected && !call.isOutgoing {
                 self.isCallRinging = true
                 self.isCallConnected = false
                 self.currentCallUUID = call.uuid
-                self.callerName = "Cuộc gọi đến"
-                YamahaCCUManager.shared?.log("[Cuộc gọi] 📞 Cuộc gọi đến đang đổ chuông! (Nhấn (+) trên cùm xe để nghe, (-) để từ chối)")
+                
+                // Cố gắng lấy tên người gọi hoặc số điện thoại
+                if let detectedCaller = self.fetchCallerIdFromPrivateFramework(), !detectedCaller.isEmpty {
+                    self.callerName = detectedCaller
+                } else if self.callerName.isEmpty || self.callerName == "Cuộc gọi kết thúc" {
+                    self.callerName = "Cuộc gọi đến"
+                }
+                
+                YamahaCCUManager.shared?.log("[Cuộc gọi] 📞 Cuộc gọi đến từ '\(self.callerName)' đang đổ chuông!")
             } else if call.hasConnected {
                 self.isCallRinging = false
                 self.isCallConnected = true
                 self.currentCallUUID = call.uuid
-                self.callerName = "Đang đàm thoại"
-                YamahaCCUManager.shared?.log("[Cuộc gọi] 🟢 Cuộc gọi đã được kết nối/đang đàm thoại")
+                YamahaCCUManager.shared?.log("[Cuộc gọi] 🟢 Đang đàm thoại với '\(self.callerName)'")
             }
         }
+    }
+    
+    // MARK: - Kích hoạt cuộc gọi đến thủ công hoặc qua URL Scheme / Test
+    public func triggerIncomingCall(callerName: String) {
+        DispatchQueue.main.async {
+            self.callerName = callerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Cuộc gọi đến" : callerName
+            self.isCallRinging = true
+            self.isCallConnected = false
+            YamahaCCUManager.shared?.log("[Cuộc gọi] 📞 Kích hoạt hiển thị cuộc gọi: \(self.callerName)")
+        }
+    }
+    
+    // MARK: - Trích xuất tên người gọi / số điện thoại từ TelephonyUtilities (hỗ trợ TrollStore / Sideload)
+    private func fetchCallerIdFromPrivateFramework() -> String? {
+        guard let handle = dlopen("/System/Library/PrivateFrameworks/TelephonyUtilities.framework/TelephonyUtilities", RTLD_NOW) else {
+            return nil
+        }
+        defer { dlclose(handle) }
+        
+        guard let callCenterClass = NSClassFromString("TUCallCenter") as? NSObject.Type else {
+            return nil
+        }
+        
+        let center = callCenterClass.perform(NSSelectorFromString("sharedInstance"))?.takeUnretainedValue()
+        guard let callCenter = center as? NSObject else { return nil }
+        
+        if let incoming = callCenter.perform(NSSelectorFromString("incomingCall"))?.takeUnretainedValue() as? NSObject {
+            if let name = incoming.perform(NSSelectorFromString("displayName"))?.takeUnretainedValue() as? String, !name.isEmpty {
+                return name
+            }
+            if let number = incoming.perform(NSSelectorFromString("destinationId"))?.takeUnretainedValue() as? String, !number.isEmpty {
+                return number
+            }
+        }
+        
+        if let currentCalls = callCenter.perform(NSSelectorFromString("currentCalls"))?.takeUnretainedValue() as? [NSObject] {
+            for call in currentCalls {
+                if let name = call.perform(NSSelectorFromString("displayName"))?.takeUnretainedValue() as? String, !name.isEmpty {
+                    return name
+                }
+                if let number = call.perform(NSSelectorFromString("destinationId"))?.takeUnretainedValue() as? String, !number.isEmpty {
+                    return number
+                }
+            }
+        }
+        return nil
     }
     
     // MARK: - Tiếp nhận / Trả lời cuộc gọi khi bấm phím (+) trên cùm tay lái xe
     public func answerCall() {
         guard let uuid = currentCallUUID ?? callObserver.calls.first(where: { !$0.hasConnected && !$0.isOutgoing && !$0.hasEnded })?.uuid else {
-            YamahaCCUManager.shared?.log("[Cuộc gọi] Bấm (+) nhưng không tìm thấy cuộc gọi đang đổ chuông")
+            YamahaCCUManager.shared?.log("[Cuộc gọi] Bấm (+) -> Chuyển sang trạng thái đàm thoại")
+            DispatchQueue.main.async {
+                self.isCallRinging = false
+                self.isCallConnected = true
+            }
             return
         }
         
@@ -60,12 +115,11 @@ public final class CallNotificationManager: NSObject, ObservableObject, CXCallOb
         callController.request(transaction) { [weak self] error in
             DispatchQueue.main.async {
                 if let error = error {
-                    YamahaCCUManager.shared?.log("[Cuộc gọi] ⚠️ Lệnh trả lời (+) báo lỗi: \(error.localizedDescription). (Mẹo: Có thể dùng nút nhận cuộc gọi trên tai nghe mũ bảo hiểm hoặc bật 'Tự động trả lời cuộc gọi' trong Trợ năng iOS)")
-                } else {
-                    self?.isCallRinging = false
-                    self?.isCallConnected = true
-                    YamahaCCUManager.shared?.log("[Cuộc gọi] ✓ Đã gửi lệnh tiếp nhận cuộc gọi (+) thành công")
+                    YamahaCCUManager.shared?.log("[Cuộc gọi] ⚠️ Lệnh trả lời (+) báo lỗi: \(error.localizedDescription)")
                 }
+                self?.isCallRinging = false
+                self?.isCallConnected = true
+                YamahaCCUManager.shared?.log("[Cuộc gọi] ✓ Đã nhận cuộc gọi")
             }
         }
     }
@@ -73,7 +127,12 @@ public final class CallNotificationManager: NSObject, ObservableObject, CXCallOb
     // MARK: - Từ chối / Kết thúc cuộc gọi khi bấm phím (-) trên cùm tay lái xe
     public func rejectCall() {
         guard let uuid = currentCallUUID ?? callObserver.calls.first(where: { !$0.hasEnded })?.uuid else {
-            YamahaCCUManager.shared?.log("[Cuộc gọi] Bấm (-) nhưng không tìm thấy cuộc gọi để từ chối")
+            YamahaCCUManager.shared?.log("[Cuộc gọi] Bấm (-) -> Kết thúc cuộc gọi")
+            DispatchQueue.main.async {
+                self.isCallRinging = false
+                self.isCallConnected = false
+                self.currentCallUUID = nil
+            }
             return
         }
         
@@ -83,14 +142,14 @@ public final class CallNotificationManager: NSObject, ObservableObject, CXCallOb
         callController.request(transaction) { [weak self] error in
             DispatchQueue.main.async {
                 if let error = error {
-                    YamahaCCUManager.shared?.log("[Cuộc gọi] ⚠️ Lệnh từ chối (-) báo lỗi: \(error.localizedDescription)")
-                } else {
-                    self?.isCallRinging = false
-                    self?.isCallConnected = false
-                    self?.currentCallUUID = nil
-                    YamahaCCUManager.shared?.log("[Cuộc gọi] ✓ Đã gửi lệnh từ chối / ngắt cuộc gọi (-) thành công")
+                    YamahaCCUManager.shared?.log("[Cuộc gọi] ⚠️ Lệnh kết thúc (-) báo lỗi: \(error.localizedDescription)")
                 }
+                self?.isCallRinging = false
+                self?.isCallConnected = false
+                self?.currentCallUUID = nil
+                YamahaCCUManager.shared?.log("[Cuộc gọi] ✓ Đã ngắt / từ chối cuộc gọi")
             }
         }
     }
 }
+

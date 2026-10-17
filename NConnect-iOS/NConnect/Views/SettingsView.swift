@@ -27,6 +27,9 @@ public struct SettingsView: View {
         "OpenStreetMap Xe 2 Bánh (CyclOSM)"
     ]
     
+    @ObservedObject private var notificationManager = AppNotificationManager.shared
+    @State private var showShortcutsGuide = false
+    
     public init(ccuManager: YamahaCCUManager) {
         self.ccuManager = ccuManager
     }
@@ -207,15 +210,103 @@ public struct SettingsView: View {
                     }
                 }
                 
-                Section(header: Text("Thông báo & Cuộc gọi trên xe")) {
+                Section(header: Text("Thông báo ứng dụng lên màn hình xe (TFT)")) {
+                    Toggle("Hiển thị thông báo lên màn hình xe", isOn: $notificationManager.isNotificationsEnabled)
+                    
+                    Stepper(value: $notificationManager.displayDurationSeconds, in: 3...30) {
+                        HStack {
+                            Text("Thời gian hiển thị:")
+                            Spacer()
+                            Text("\(notificationManager.displayDurationSeconds) giây")
+                                .fontWeight(.bold)
+                                .foregroundColor(.cyan)
+                        }
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("• Cuộc gọi đến: Nền xanh lá cây, hiện tên/số điện thoại liên tục cho tới khi cuộc gọi kết thúc.")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                        Text("• Thông báo ứng dụng (Zalo, Messenger, SMS...): Tự động tắt sau \(notificationManager.displayDurationSeconds) giây.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                    
+                    // Nút bấm thử nghiệm
+                    VStack(spacing: 8) {
+                        Button(action: {
+                            notificationManager.postNotification(
+                                appName: "Zalo",
+                                sender: "Nguyễn Văn A",
+                                message: "Chiều nay đi uống cà phê nhé!"
+                            )
+                        }) {
+                            HStack {
+                                Image(systemName: "message.fill")
+                                Text("Gửi thử thông báo Zalo lên xe")
+                                Spacer()
+                                Text("\(notificationManager.displayDurationSeconds)s")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                            }
+                            .foregroundColor(.blue)
+                        }
+                        
+                        Button(action: {
+                            notificationManager.postNotification(
+                                appName: "Tin nhắn",
+                                sender: "0901234567",
+                                message: "Mã OTP của bạn là 8866. Hết hạn trong 5 phút."
+                            )
+                        }) {
+                            HStack {
+                                Image(systemName: "bubble.left.and.bubble.right.fill")
+                                Text("Gửi thử thông báo SMS lên xe")
+                                Spacer()
+                                Text("\(notificationManager.displayDurationSeconds)s")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                            }
+                            .foregroundColor(.green)
+                        }
+                        
+                        Button(action: {
+                            CallNotificationManager.shared.triggerIncomingCall(callerName: "Nguyễn Văn A (0901234567)")
+                        }) {
+                            HStack {
+                                Image(systemName: "phone.fill")
+                                Text("Thử nghiệm cuộc gọi đến (Màu xanh)")
+                                Spacer()
+                                Text("Hiện liên tục")
+                                    .font(.caption)
+                                    .foregroundColor(.gray)
+                            }
+                            .foregroundColor(.orange)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                
+                Section(header: Text("Hướng dẫn nhận thông báo tự động từ iPhone")) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("📩 Nhận tin nhắn SMS / Zalo / Messenger:")
+                        Text("📩 Cách 1: Qua chuẩn Bluetooth ANCS của xe")
                             .font(.subheadline)
                             .fontWeight(.bold)
                             .foregroundColor(.white)
                         Text("Vào Cài đặt iPhone → Bluetooth → chọn tên xe Yamaha → Bật \"Chia sẻ thông báo hệ thống\". Mọi thông báo sẽ được iOS chuyển thẳng lên màn hình xe.")
                             .font(.caption)
                             .foregroundColor(.secondary)
+                        
+                        Divider().background(Color.gray.opacity(0.3))
+                        
+                        Text("⚡ Cách 2: Qua Phím tắt iOS (Shortcuts Automation)")
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                        Text("Tạo Tự động hoá: Khi nhận tin nhắn Zalo/SMS → Mở URL:\nmynmax://notify?app=Zalo&sender=Nam&message=Alo")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.cyan)
                         
                         Divider().background(Color.gray.opacity(0.3))
                         
@@ -226,16 +317,6 @@ public struct SettingsView: View {
                         Text("• Phím (+): Nhận / Trả lời cuộc gọi đến.\n• Phím (-): Từ chối / Kết thúc cuộc gọi.\n• Khi không có cuộc gọi, phím (+) và (-) dùng để phóng to / thu nhỏ bản đồ.")
                             .font(.caption)
                             .foregroundColor(.yellow)
-                        
-                        Divider().background(Color.gray.opacity(0.3))
-                        
-                        Text("💡 Mẹo tự động nghe máy:")
-                            .font(.subheadline)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                        Text("Cài đặt iPhone → Trợ năng → Cảm ứng → Định tuyến âm thanh cuộc gọi → bật \"Tự động trả lời cuộc gọi\" để đàm thoại rảnh tay qua tai nghe nón bảo hiểm.")
-                            .font(.caption)
-                            .foregroundColor(.cyan)
                     }
                     .padding(.vertical, 4)
                 }
@@ -244,7 +325,7 @@ public struct SettingsView: View {
                     HStack {
                         Text("Phiên bản")
                         Spacer()
-                        Text("0.5.13 (Build 39)")
+                        Text("0.5.14 (Build 40)")
                             .foregroundColor(.secondary)
                     }
                     Text("MyNMAX - Dẫn đường và thông báo cho xe máy Yamaha có màn hình TFT.")

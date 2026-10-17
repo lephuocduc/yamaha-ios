@@ -58,6 +58,7 @@ public struct LiveNavigationView: View {
     @State private var searchQuery = ""
     @State private var showTFTMiniPreview = true
     @ObservedObject private var callManager = CallNotificationManager.shared
+    @ObservedObject private var notificationManager = AppNotificationManager.shared
     
     // Quản lý Điểm A (Xuất phát) và Điểm B (Điểm đến)
     @State private var pointA: RoutePointItem? = nil // nil = Vị trí GPS hiện tại của người dùng
@@ -109,12 +110,12 @@ public struct LiveNavigationView: View {
                         
                         VStack(alignment: .leading, spacing: 2) {
                             Text("CUỘC GỌI ĐẾN")
-                                .font(.subheadline)
+                                .font(.caption2.bold())
+                                .foregroundColor(Color(red: 0.9, green: 1.0, blue: 0.85))
+                            Text(callManager.callerName.isEmpty ? "Cuộc gọi đến" : callManager.callerName)
+                                .font(.headline)
                                 .fontWeight(.heavy)
                                 .foregroundColor(.white)
-                            Text("Bấm (+) trên cùm xe để nghe, (-) để từ chối")
-                                .font(.caption)
-                                .foregroundColor(Color.yellow)
                         }
                         
                         Spacer()
@@ -138,11 +139,11 @@ public struct LiveNavigationView: View {
                         }
                     }
                     .padding(12)
-                    .background(Color(red: 0.82, green: 0.08, blue: 0.16))
+                    .background(Color(red: 0.08, green: 0.65, blue: 0.24))
                     .cornerRadius(14)
                     .overlay(
                         RoundedRectangle(cornerRadius: 14)
-                            .stroke(Color.yellow, lineWidth: 2)
+                            .stroke(Color.white.opacity(0.4), lineWidth: 1.5)
                     )
                     .padding(.horizontal)
                 } else if callManager.isCallConnected {
@@ -153,12 +154,12 @@ public struct LiveNavigationView: View {
                         
                         VStack(alignment: .leading, spacing: 2) {
                             Text("ĐANG ĐÀM THOẠI")
-                                .font(.subheadline)
+                                .font(.caption2.bold())
+                                .foregroundColor(.green)
+                            Text(callManager.callerName.isEmpty ? "Đang kết nối" : callManager.callerName)
+                                .font(.headline)
                                 .fontWeight(.bold)
                                 .foregroundColor(.white)
-                            Text("Bấm (-) trên cùm xe để kết thúc")
-                                .font(.caption)
-                                .foregroundColor(.gray)
                         }
                         
                         Spacer()
@@ -173,8 +174,46 @@ public struct LiveNavigationView: View {
                         }
                     }
                     .padding(12)
-                    .background(Color(red: 0.10, green: 0.15, blue: 0.22))
+                    .background(Color(red: 0.05, green: 0.35, blue: 0.15))
                     .cornerRadius(14)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color.green.opacity(0.5), lineWidth: 1.5)
+                    )
+                    .padding(.horizontal)
+                } else if let notif = notificationManager.activeNotification {
+                    HStack(spacing: 12) {
+                        Image(systemName: "message.fill")
+                            .font(.title2)
+                            .foregroundColor(.white)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(notif.appName.uppercased()) · \(notif.sender)")
+                                .font(.caption2.bold())
+                                .foregroundColor(.cyan)
+                            Text(notif.message)
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.white)
+                                .lineLimit(2)
+                        }
+                        
+                        Spacer()
+                        
+                        Button(action: { notificationManager.dismissNotification() }) {
+                            Image(systemName: "xmark")
+                                .font(.caption.bold())
+                                .foregroundColor(.white.opacity(0.7))
+                                .padding(6)
+                        }
+                    }
+                    .padding(12)
+                    .background(Color(red: 0.10, green: 0.16, blue: 0.26))
+                    .cornerRadius(14)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color.cyan.opacity(0.6), lineWidth: 1.5)
+                    )
                     .padding(.horizontal)
                 }
                 

@@ -270,6 +270,14 @@ public final class TFTStreamRenderer: ObservableObject {
                 self?.triggerImmediateReRender()
             }
             .store(in: &cancellables)
+            
+        AppNotificationManager.shared.$activeNotification
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.triggerImmediateReRender()
+            }
+            .store(in: &cancellables)
     }
     
     private func beginBgTask() {
@@ -669,72 +677,106 @@ public final class TFTStreamRenderer: ObservableObject {
         let bannerHeight: CGFloat = 62.0
         let bannerRect = CGRect(x: 0, y: 0, width: size.width, height: bannerHeight)
         
-        // 0. Khi có cuộc gọi đến (Incoming Call Alert - Ưu tiên số 1, hiển thị cả khi chạy tự do lẫn khi dẫn đường)
-        if CallNotificationManager.shared.isCallRinging {
-            ctx.setFillColor(UIColor(red: 0.82, green: 0.08, blue: 0.16, alpha: 0.98).cgColor)
+        // 0. Khi có cuộc gọi đến hoặc đang đàm thoại (Ưu tiên số 1, nền xanh lá, hiển thị tên/SĐT cho tới khi cuộc gọi kết thúc)
+        if CallNotificationManager.shared.isCallRinging || CallNotificationManager.shared.isCallConnected {
+            let isRinging = CallNotificationManager.shared.isCallRinging
+            // Nền xanh lá cây (Emerald Green) cao cấp
+            ctx.setFillColor(UIColor(red: 0.08, green: 0.65, blue: 0.24, alpha: 0.98).cgColor)
             ctx.fill(bannerRect)
             
-            ctx.setStrokeColor(UIColor(red: 1.0, green: 0.88, blue: 0.0, alpha: 1.0).cgColor)
+            // Đường viền phát sáng màu vàng chanh / trắng ánh kim ở mép dưới
+            ctx.setStrokeColor(UIColor(red: 0.85, green: 1.0, blue: 0.88, alpha: 1.0).cgColor)
             ctx.setLineWidth(2.5)
             ctx.move(to: CGPoint(x: 0, y: bannerHeight))
             ctx.addLine(to: CGPoint(x: size.width, y: bannerHeight))
             ctx.strokePath()
             
-            let callTitle = "📞 CUỘC GỌI ĐẾN"
-            let titleAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 20, weight: .heavy),
-                .foregroundColor: UIColor.white
+            // Dòng 1: Tag trạng thái nhỏ phía trên
+            let statusTag = isRinging ? "📞 CUỘC GỌI ĐẾN" : "📞 ĐANG ĐÀM THOẠI"
+            let tagAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 13, weight: .bold),
+                .foregroundColor: UIColor(red: 0.95, green: 1.0, blue: 0.82, alpha: 1.0)
             ]
-            let titleSize = (callTitle as NSString).size(withAttributes: titleAttrs)
-            (callTitle as NSString).draw(
-                at: CGPoint(x: size.width / 2.0 - titleSize.width / 2.0, y: 7),
-                withAttributes: titleAttrs
+            let tagSize = (statusTag as NSString).size(withAttributes: tagAttrs)
+            (statusTag as NSString).draw(
+                at: CGPoint(x: size.width / 2.0 - tagSize.width / 2.0, y: 6),
+                withAttributes: tagAttrs
             )
             
-            let hintText = "[+] TRẢ LỜI      [-] TỪ CHỐI"
-            let hintAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 15, weight: .heavy),
-                .foregroundColor: UIColor(red: 1.0, green: 0.92, blue: 0.2, alpha: 1.0)
+            // Dòng 2: Tên người gọi hoặc số điện thoại (Chữ bự, nổi bật, căn giữa, không cần chú thích phím)
+            let rawCaller = CallNotificationManager.shared.callerName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let callerText = rawCaller.isEmpty ? (isRinging ? "Cuộc gọi đến" : "Đang kết nối") : rawCaller
+            
+            var fontSize: CGFloat = 24.0
+            var callerAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: fontSize, weight: .heavy),
+                .foregroundColor: UIColor.white
             ]
-            let hintSize = (hintText as NSString).size(withAttributes: hintAttrs)
-            (hintText as NSString).draw(
-                at: CGPoint(x: size.width / 2.0 - hintSize.width / 2.0, y: 34),
-                withAttributes: hintAttrs
+            var callerSize = (callerText as NSString).size(withAttributes: callerAttrs)
+            // Thu nhỏ tự động nếu tên hoặc số điện thoại quá dài
+            if callerSize.width > (size.width - 24) {
+                fontSize = 19.0
+                callerAttrs[.font] = UIFont.systemFont(ofSize: fontSize, weight: .heavy)
+                callerSize = (callerText as NSString).size(withAttributes: callerAttrs)
+            }
+            (callerText as NSString).draw(
+                at: CGPoint(x: size.width / 2.0 - callerSize.width / 2.0, y: 25),
+                withAttributes: callerAttrs
             )
             return
         }
         
-        // 0.1 Khi đang đàm thoại cuộc gọi
-        if CallNotificationManager.shared.isCallConnected {
-            ctx.setFillColor(UIColor(red: 0.05, green: 0.38, blue: 0.15, alpha: 0.95).cgColor)
+        // 0.1 Thông báo từ ứng dụng khác (Zalo, Messenger, SMS, v.v. - Tự động biến mất theo số giây cài đặt)
+        if let notif = AppNotificationManager.shared.activeNotification {
+            let appLower = notif.appName.lowercased()
+            let bgColor: UIColor
+            if appLower.contains("zalo") {
+                bgColor = UIColor(red: 0.05, green: 0.44, blue: 0.92, alpha: 0.98)
+            } else if appLower.contains("mess") {
+                bgColor = UIColor(red: 0.45, green: 0.18, blue: 0.88, alpha: 0.98)
+            } else {
+                bgColor = UIColor(red: 0.12, green: 0.16, blue: 0.24, alpha: 0.98)
+            }
+            
+            ctx.setFillColor(bgColor.cgColor)
             ctx.fill(bannerRect)
             
-            ctx.setStrokeColor(UIColor(red: 0.2, green: 1.0, blue: 0.45, alpha: 1.0).cgColor)
+            ctx.setStrokeColor(UIColor(red: 0.35, green: 0.80, blue: 1.0, alpha: 1.0).cgColor)
             ctx.setLineWidth(2.0)
             ctx.move(to: CGPoint(x: 0, y: bannerHeight))
             ctx.addLine(to: CGPoint(x: size.width, y: bannerHeight))
             ctx.strokePath()
             
-            let callTitle = "📞 ĐANG ĐÀM THOẠI"
-            let titleAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 19, weight: .heavy),
-                .foregroundColor: UIColor.white
+            // Dòng 1: Tên App & Người gửi
+            let senderTag = "💬 [\(notif.appName.uppercased())]  \(notif.sender.uppercased())"
+            let tagAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 13, weight: .bold),
+                .foregroundColor: UIColor(red: 0.9, green: 0.96, blue: 1.0, alpha: 1.0)
             ]
-            let titleSize = (callTitle as NSString).size(withAttributes: titleAttrs)
-            (callTitle as NSString).draw(
-                at: CGPoint(x: size.width / 2.0 - titleSize.width / 2.0, y: 7),
-                withAttributes: titleAttrs
+            let tagSize = (senderTag as NSString).size(withAttributes: tagAttrs)
+            (senderTag as NSString).draw(
+                at: CGPoint(x: max(16, size.width / 2.0 - tagSize.width / 2.0), y: 6),
+                withAttributes: tagAttrs
             )
             
-            let hintText = "[-] KẾT THÚC CUỘC GỌI"
-            let hintAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 14, weight: .bold),
-                .foregroundColor: UIColor(red: 1.0, green: 0.9, blue: 0.9, alpha: 1.0)
+            // Dòng 2: Nội dung tin nhắn
+            let msgText = notif.message.isEmpty ? "Đã gửi một thông báo mới" : notif.message
+            let msgAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 20, weight: .heavy),
+                .foregroundColor: UIColor.white
             ]
-            let hintSize = (hintText as NSString).size(withAttributes: hintAttrs)
-            (hintText as NSString).draw(
-                at: CGPoint(x: size.width / 2.0 - hintSize.width / 2.0, y: 34),
-                withAttributes: hintAttrs
+            var displayMsg = msgText
+            var msgSize = (displayMsg as NSString).size(withAttributes: msgAttrs)
+            if msgSize.width > (size.width - 30) {
+                while displayMsg.count > 10 && msgSize.width > (size.width - 30) {
+                    displayMsg.removeLast()
+                    msgSize = ((displayMsg + "...") as NSString).size(withAttributes: msgAttrs)
+                }
+                displayMsg += "..."
+            }
+            (displayMsg as NSString).draw(
+                at: CGPoint(x: max(12, size.width / 2.0 - msgSize.width / 2.0), y: 26),
+                withAttributes: msgAttrs
             )
             return
         }
