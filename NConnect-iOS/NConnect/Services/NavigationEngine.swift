@@ -3,7 +3,7 @@ import CoreLocation
 import MapKit
 import Combine
 
-// MARK: - Bộ xử lý định vị và dẫn đường NConnect sử dụng 100% OpenStreetMap & OSRM (Open Source)
+// MARK: - Bộ xử lý định vị và dẫn đường NConnect sử dụng OpenStreetMap (OSM) & Valhalla Routing Engine
 public final class NavigationEngine: NSObject, ObservableObject {
     
     @Published public var currentLocation: CLLocation?
@@ -272,7 +272,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
         }.resume()
     }
     
-    // MARK: - Lập lộ trình chỉ đường bằng OSRM (Open Source Routing Machine) của OpenStreetMap
+    // MARK: - Lập lộ trình chỉ đường bằng Valhalla Routing Engine (Tối ưu xe máy)
     public func calculateRoute(to destination: CLLocationCoordinate2D) {
         guard let start = currentLocation?.coordinate else {
             print("[Nav] Chưa có vị trí GPS hiện tại để lập lộ trình")
@@ -280,31 +280,170 @@ public final class NavigationEngine: NSObject, ObservableObject {
         }
         
         isCalculatingRoute = true
-        let urlStr = "https://router.project-osrm.org/route/v1/driving/\(start.longitude),\(start.latitude);\(destination.longitude),\(destination.latitude)?overview=full&geometries=geojson&steps=true"
-        guard let url = URL(string: urlStr) else { return }
+        requestValhallaRoute(start: start, destination: destination) { [weak self] route in
+            guard let self = self else { return }
+            if let route = route {
+                DispatchQueue.main.async {
+                    self.applyCalculatedRoute(route)
+                }
+            } else {
+                print("[Nav] Valhalla không khả dụng, kích hoạt dự phòng OSRM...")
+                self.fallbackOSRMRoute(start: start, destination: destination) { [weak self] fallbackRoute in
+                    guard let self = self else { return }
+                    DispatchQueue.main.async {
+                        self.isCalculatingRoute = false
+                        if let fb = fallbackRoute {
+                            self.applyCalculatedRoute(fb)
+                        } else {
+                            print("[Nav] Cả Valhalla và OSRM đều không tìm thấy lộ trình")
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private func applyCalculatedRoute(_ route: OSMRoute) {
+        self.isCalculatingRoute = false
+        self.activeRoute = route
+        self.routeSteps = route.steps
+        self.currentStepIndex = 0
+        self.enableBackgroundUpdatesIfPossible()
+        self.isNavigating = true
+        self.updateCurrentInstruction()
+        print("[Nav] ✓ Lộ trình Valhalla sẵn sàng: \(route.steps.count) bước, cự ly \(Int(route.distanceMeters))m, thời gian \(Int(route.durationSeconds))s")
+    }
+    
+    // MARK: - Gọi API Valhalla Routing Engine với cấu hình xe máy (costing: motorcycle)
+    private func requestValhallaRoute(start: CLLocationCoordinate2D, destination: CLLocationCoordinate2D, completion: @escaping (OSMRoute?) -> Void) {
+        let serverUrl = UserDefaults.standard.string(forKey: "valhallaServerUrl") ?? "https://valhalla1.openstreetmap.de"
+        let trimmedServer = serverUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let url = URL(string: "\(trimmedServer)/route") else {
+            completion(nil)
+            return
+        }
+        
+        let payload: [String: Any] = [
+            "locations": [
+                ["lat": start.latitude, "lon": start.longitude, "type": "break"],
+                ["lat": destination.latitude, "lon": destination.longitude, "type": "break"]
+            ],
+            "costing": "motorcycle",
+            "costing_options": [
+                "motorcycle": [
+                    "use_highways": 0.5,
+                    "use_trails": 0.0
+                ]
+            ],
+            "directions_options": [
+                "units": "kilometers",
+                "language": "vi-VN"
+            ]
+        ]
+        
+        guard let httpBody = try? JSONSerialization.data(withJSONObject: payload) else {
+            completion(nil)
+            return
+        }
         
         var request = URLRequest(url: url)
-        request.setValue("NConnect-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
+        request.httpMethod = "POST"
+        request.setValue("application/json; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
+        request.httpBody = httpBody
         
         networkSession.dataTask(with: request) { [weak self] data, response, error in
-            guard let self = self else { return }
-            
-            if let error = error {
-                print("[Nav] Lỗi gọi OSRM routing: \(error.localizedDescription)")
-                DispatchQueue.main.async { self.isCalculatingRoute = false }
+            guard let self = self, let data = data, error == nil else {
+                completion(nil)
                 return
             }
             
-            guard let data = data,
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let trip = json["trip"] as? [String: Any],
+                  let legs = trip["legs"] as? [[String: Any]],
+                  let firstLeg = legs.first else {
+                completion(nil)
+                return
+            }
+            
+            let summary = trip["summary"] as? [String: Any] ?? [:]
+            let totalLengthKm = summary["length"] as? Double ?? 0.0
+            let totalTimeSec = summary["time"] as? Double ?? 0.0
+            
+            let shape = firstLeg["shape"] as? String ?? ""
+            let coordinates = NavigationEngine.decodePolyline6(shape)
+            guard !coordinates.isEmpty else {
+                completion(nil)
+                return
+            }
+            
+            var steps: [NavigationStep] = []
+            if let maneuvers = firstLeg["maneuvers"] as? [[String: Any]] {
+                for m in maneuvers {
+                    let type = m["type"] as? Int ?? 1
+                    let rawInstruction = (m["instruction"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    let lengthKm = m["length"] as? Double ?? 0.0
+                    let distMeters = Int(lengthKm * 1000.0)
+                    let beginIdx = m["begin_shape_index"] as? Int ?? 0
+                    
+                    let streetNames = m["street_names"] as? [String] ?? []
+                    var roadName = streetNames.first ?? ""
+                    if roadName.isEmpty {
+                        if let range = rawInstruction.range(of: "vào ") {
+                            let extracted = String(rawInstruction[range.upperBound...])
+                            roadName = extracted.components(separatedBy: "/").first?
+                                .trimmingCharacters(in: CharacterSet(charactersIn: " .,")) ?? ""
+                        }
+                    }
+                    if roadName.isEmpty {
+                        roadName = "Đoạn đường tiếp theo"
+                    }
+                    
+                    let stepCoord = (beginIdx < coordinates.count) ? coordinates[beginIdx] : (coordinates.first ?? start)
+                    let direction = self.mapValhallaToDirection(type: type)
+                    let finalInstruction = rawInstruction.isEmpty ? direction.descriptionVi : rawInstruction
+                    
+                    steps.append(NavigationStep(
+                        instruction: finalInstruction,
+                        distanceMeters: distMeters,
+                        direction: direction,
+                        coordinate: stepCoord,
+                        roadName: roadName
+                    ))
+                }
+            }
+            
+            let route = OSMRoute(
+                coordinates: coordinates,
+                distanceMeters: totalLengthKm * 1000.0,
+                durationSeconds: totalTimeSec,
+                steps: steps
+            )
+            completion(route)
+        }.resume()
+    }
+    
+    // MARK: - Dự phòng OSRM khi Valhalla máy chủ quá tải hoặc không có mạng
+    private func fallbackOSRMRoute(start: CLLocationCoordinate2D, destination: CLLocationCoordinate2D, completion: @escaping (OSMRoute?) -> Void) {
+        let urlStr = "https://router.project-osrm.org/route/v1/driving/\(start.longitude),\(start.latitude);\(destination.longitude),\(destination.latitude)?overview=full&geometries=geojson&steps=true"
+        guard let url = URL(string: urlStr) else {
+            completion(nil)
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
+        
+        networkSession.dataTask(with: request) { [weak self] data, _, error in
+            guard let self = self, let data = data, error == nil,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let code = json["code"] as? String, code == "Ok",
-                  let routes = json["routes"] as? [[String: Any]], let firstRoute = routes.first else {
-                print("[Nav] OSRM không tìm thấy lộ trình phù hợp")
-                DispatchQueue.main.async { self.isCalculatingRoute = false }
+                  let routes = json["routes"] as? [[String: Any]],
+                  let firstRoute = routes.first else {
+                completion(nil)
                 return
             }
             
-            // 1. Phân giải toàn bộ tọa độ hình học của lộ trình (LineString geometry)
             var routeCoords: [CLLocationCoordinate2D] = []
             if let geometry = firstRoute["geometry"] as? [String: Any],
                let coordinates = geometry["coordinates"] as? [[Double]] {
@@ -316,7 +455,6 @@ public final class NavigationEngine: NSObject, ObservableObject {
             let totalDistance = firstRoute["distance"] as? Double ?? 0.0
             let totalDuration = firstRoute["duration"] as? Double ?? 0.0
             
-            // 2. Phân giải các bước điều hướng Turn-by-Turn
             var steps: [NavigationStep] = []
             if let legs = firstRoute["legs"] as? [[String: Any]], let firstLeg = legs.first,
                let legSteps = firstLeg["steps"] as? [[String: Any]] {
@@ -351,18 +489,86 @@ public final class NavigationEngine: NSObject, ObservableObject {
                 durationSeconds: totalDuration,
                 steps: steps
             )
-            
-            DispatchQueue.main.async {
-                self.isCalculatingRoute = false
-                self.activeRoute = osmRoute
-                self.routeSteps = steps
-                self.currentStepIndex = 0
-                self.enableBackgroundUpdatesIfPossible()
-                self.isNavigating = true
-                self.updateCurrentInstruction()
-                print("[Nav] ✓ Lộ trình OpenStreetMap sẵn sàng: \(steps.count) bước, cự ly \(Int(totalDistance))m")
-            }
+            completion(osmRoute)
         }.resume()
+    }
+    
+    // MARK: - Giải mã chuỗi Polyline6 của Valhalla (Hệ số chính xác 1e6)
+    public static func decodePolyline6(_ encoded: String) -> [CLLocationCoordinate2D] {
+        var coordinates: [CLLocationCoordinate2D] = []
+        let bytes = Array(encoded.utf8)
+        var index = 0
+        let count = bytes.count
+        var lat: Int64 = 0
+        var lon: Int64 = 0
+        
+        while index < count {
+            var result: Int64 = 0
+            var shift: Int64 = 0
+            while true {
+                guard index < count else { break }
+                let b = Int64(bytes[index]) - 63
+                index += 1
+                result |= (b & 0x1f) << shift
+                shift += 5
+                if b < 0x20 {
+                    break
+                }
+            }
+            let dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1))
+            lat += dlat
+            
+            result = 0
+            shift = 0
+            while true {
+                guard index < count else { break }
+                let b = Int64(bytes[index]) - 63
+                index += 1
+                result |= (b & 0x1f) << shift
+                shift += 5
+                if b < 0x20 {
+                    break
+                }
+            }
+            let dlon = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1))
+            lon += dlon
+            
+            let latitude = Double(lat) / 1e6
+            let longitude = Double(lon) / 1e6
+            coordinates.append(CLLocationCoordinate2D(latitude: latitude, longitude: longitude))
+        }
+        
+        return coordinates
+    }
+    
+    // MARK: - Ánh xạ mã chỉ dẫn rẽ Valhalla sang biểu tượng Garmin StreetCross
+    private func mapValhallaToDirection(type: Int) -> NavigationDirection {
+        switch type {
+        case 1, 2, 3: // kStart, kStartRight, kStartLeft
+            return .straight
+        case 4, 5, 6, 35, 36: // kDestination, kDestinationRight, kDestinationLeft, transit destinations
+            return .destination
+        case 7, 8, 17, 22, 25: // kBecomes, kContinue, kRampStraight, kStayStraight, kMerge
+            return .straight
+        case 9, 18, 20, 23, 37: // kSlightRight, kRampRight, kExitRight, kStayRight, kMergeRight
+            return .slightRight
+        case 10: // kRight
+            return .right
+        case 11: // kSharpRight
+            return .sharpRight
+        case 12, 13: // kUturnRight, kUturnLeft
+            return .uTurn
+        case 14: // kSharpLeft
+            return .sharpLeft
+        case 15: // kLeft
+            return .left
+        case 16, 19, 21, 24, 38: // kSlightLeft, kRampLeft, kExitLeft, kStayLeft, kMergeLeft
+            return .slightLeft
+        case 26, 27: // kRoundaboutEnter, kRoundaboutExit
+            return .roundabout
+        default:
+            return .straight
+        }
     }
     
     public func stopNavigation() {

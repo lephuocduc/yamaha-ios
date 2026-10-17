@@ -151,7 +151,7 @@ public struct NavigationInstruction {
     public init() {}
 }
 
-// MARK: - Bước điều hướng OpenStreetMap (OSRM Turn-by-Turn Step)
+// MARK: - Bước điều hướng Turn-by-Turn (Valhalla / OSM Step)
 public struct NavigationStep: Identifiable {
     public let id = UUID()
     public let instruction: String
@@ -169,7 +169,7 @@ public struct NavigationStep: Identifiable {
     }
 }
 
-// MARK: - Tuyến đường lộ trình OpenStreetMap (OSRM Route)
+// MARK: - Tuyến đường lộ trình OpenStreetMap (OSM Route)
 public struct OSMRoute {
     public let coordinates: [CLLocationCoordinate2D]
     public let distanceMeters: Double

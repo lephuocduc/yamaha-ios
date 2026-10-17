@@ -5,8 +5,8 @@ public struct SettingsView: View {
     
     @AppStorage("selectedBikeModel") private var selectedBikeModel = "Yamaha XMAX 300"
     @AppStorage("autoReconnect") private var autoReconnect = true
-    @AppStorage("osmTileStyle") private var osmTileStyle = "OSM Chuẩn (Sáng)"
-    @AppStorage("osrmServerUrl") private var osrmServerUrl = "https://router.project-osrm.org"
+    @AppStorage("osmTileStyle") private var osmTileStyle = "OSM Voyager (Sắc nét)"
+    @AppStorage("valhallaServerUrl") private var valhallaServerUrl = "https://valhalla1.openstreetmap.de"
     
     let bikeModels = [
         "Yamaha XMAX 300",
@@ -18,9 +18,9 @@ public struct SettingsView: View {
     ]
     
     let osmTileStyles = [
-        "OSM Chuẩn (Sáng)",
+        "OSM Voyager (Sắc nét)",
         "OSM Carto Dark (Tối cho xe)",
-        "OSM Voyager (Sắc nét)"
+        "OSM Chuẩn (Sáng)"
     ]
     
     public init(ccuManager: YamahaCCUManager) {
@@ -40,8 +40,8 @@ public struct SettingsView: View {
                     Toggle("Tự động kết nối khi bật xe", isOn: $autoReconnect)
                 }
                 
-                Section(header: Text("Bản đồ & Chỉ đường OpenStreetMap (Mã nguồn mở)")) {
-                    Picker("Giao diện ngói bản đồ", selection: $osmTileStyle) {
+                Section(header: Text("Bản đồ & Thuật toán dẫn đường (Mã nguồn mở)")) {
+                    Picker("Giao diện bản đồ hiển thị (OSM)", selection: $osmTileStyle) {
                         ForEach(osmTileStyles, id: \.self) { style in
                             Text(style).tag(style)
                         }
@@ -57,17 +57,27 @@ public struct SettingsView: View {
                     }
                     
                     HStack {
-                        Text("Máy chủ dẫn đường")
+                        Text("Tầng thuật toán dẫn đường")
                         Spacer()
-                        Text("OSRM (Open Source)")
+                        Text("Valhalla Engine")
+                            .foregroundColor(.cyan)
+                    }
+                    
+                    HStack {
+                        Text("Chế độ phương tiện")
+                        Spacer()
+                        Text("Motorcycle (Xe máy)")
                             .foregroundColor(.secondary)
                     }
                     
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("✓ Không sử dụng Google Maps hay Apple Maps.")
+                        Text("✓ Tầng hiển thị: Dữ liệu OpenStreetMap (OSM).")
                             .font(.caption)
                             .foregroundColor(.green)
-                        Text("✓ Dữ liệu bản đồ & chỉ đường Turn-by-Turn 100% từ cộng đồng OpenStreetMap (ODbL).")
+                        Text("✓ Tầng thuật toán: Valhalla Routing Engine chuyên biệt cho xe máy (tiếng Việt).")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                        Text("✓ 100% mã nguồn mở & miễn phí, không dùng Google Maps hay Apple Maps.")
                             .font(.caption)
                             .foregroundColor(.gray)
                     }

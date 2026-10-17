@@ -311,9 +311,9 @@ public final class TFTStreamRenderer: ObservableObject {
                 }
             }
             
-            // 3. Vẽ lộ trình OpenStreetMap (OSRM Polyline) trong cùng hệ tọa độ ngói OSM
+            // 3. Vẽ lộ trình OpenStreetMap (Valhalla / OSM Polyline) trong cùng hệ tọa độ ngói OSM
             if let route = activeRoute, route.coordinates.count > 1 {
-                self.drawOSRMRoutePolyline(route, in: ctx, zoom: zoom, originX: originWorldX, originY: originWorldY)
+                self.drawRoutePolyline(route, in: ctx, zoom: zoom, originX: originWorldX, originY: originWorldY)
             }
             
             ctx.restoreGState()
@@ -340,8 +340,8 @@ public final class TFTStreamRenderer: ObservableObject {
         }
     }
     
-    // MARK: - Vẽ tuyến đường OSRM trên mặt phẳng ngói OpenStreetMap
-    private func drawOSRMRoutePolyline(_ route: OSMRoute, in ctx: CGContext, zoom: Int, originX: Double, originY: Double) {
+    // MARK: - Vẽ tuyến đường lộ trình trên mặt phẳng ngói OpenStreetMap
+    private func drawRoutePolyline(_ route: OSMRoute, in ctx: CGContext, zoom: Int, originX: Double, originY: Double) {
         let n = pow(2.0, Double(zoom))
         let path = UIBezierPath()
         var hasStarted = false

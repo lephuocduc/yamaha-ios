@@ -73,7 +73,7 @@ public struct LiveNavigationView: View {
                 
                 // 4. Nhãn bản quyền OpenStreetMap bắt buộc
                 HStack {
-                    Text("Bản đồ © OpenStreetMap contributors • Lộ trình OSRM")
+                    Text("Bản đồ © OpenStreetMap contributors • Lộ trình Valhalla")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(Color.white.opacity(0.75))
                         .padding(.horizontal, 8)
