@@ -51,9 +51,19 @@ public struct ContentView: View {
             ccuManager.onStopRoute = { [weak navEngine] in
                 navEngine?.stopNavigation()
             }
-            ccuManager.updateCurrentRoadNameOnTFT(navEngine.currentRoadName)
-            navEngine.onRoadNameChanged = { [weak ccuManager] road in
-                ccuManager?.updateCurrentRoadNameOnTFT(road)
+            streamRenderer.ccuManager = ccuManager
+            ccuManager.updateCurrentRoadNameOnTFT(
+                navEngine.currentRoadName,
+                distanceMeters: Double(navEngine.currentInstruction.distanceMeters),
+                maneuverIcon: UInt8(navEngine.currentInstruction.direction.rawValue)
+            )
+            navEngine.onRoadNameChanged = { [weak ccuManager, weak navEngine] road in
+                guard let nav = navEngine else { return }
+                ccuManager?.updateCurrentRoadNameOnTFT(
+                    road,
+                    distanceMeters: Double(nav.currentInstruction.distanceMeters),
+                    maneuverIcon: UInt8(nav.currentInstruction.direction.rawValue)
+                )
             }
             streamRenderer.startBackgroundStreaming(ccuManager: ccuManager, navEngine: navEngine)
         }

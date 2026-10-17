@@ -323,10 +323,13 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     log("✓ Mã CCU xe: \(ccuPart) → Gửi phản hồi echo svc 84 + setup burst")
                     writeEAData(NaviLite.frame(6, 84, 1, NaviLite.secDataAckPayload(f.payload)))
                     
-                    // Setup burst cấu hình hiển thị ban đầu chuẩn Garmin StreetCross (Lệnh 14 sub 0x1A)
+                    // Setup burst cấu hình hiển thị ban đầu chuẩn Garmin StreetCross (Service 4 & Lệnh 14 sub 0x1A)
                     let currentRoad = !self.lastSentRoadName.isEmpty ? self.lastSentRoadName : "MyNMAX"
                     let roadBytes = [UInt8](currentRoad.prefix(64).utf8)
                     let roadPayload: [UInt8] = [0x07, 0x1A, UInt8(roadBytes.count & 0xff), 0x00] + roadBytes
+                    
+                    // Gói tin Service 4 nạp tên đường footer ban đầu
+                    let s4Init: [UInt8] = [0, 0, 0, 0, 0, 1, UInt8(roadBytes.count), 0x6D] + roadBytes
                     
                     let setup: [(UInt8, UInt8, [UInt8])] = [
                         (2, 0, [0, 0]),
@@ -335,6 +338,7 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                         (11, 0, [0, 0]),
                         (13, 0, [1, 0]),
                         (12, 0, [0, 0]),
+                        (4, 1, s4Init),
                         (14, 1, roadPayload),
                         (3, 1, []),
                         (17, 1, NaviLite.hexB("00000000036d7068")),
@@ -364,12 +368,16 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     
                 case 51, 53, 57:
                     log("Phím cùm xe: Phóng to (+) / Zoom In (mã svc \(f.svc))")
+                    // Phản hồi ACK ngay cho xe để xe mở khóa sự kiện phím tiếp theo (chuẩn Lo3/c;->j(""))
+                    writeEAData(NaviLite.frame(6, 14, 1, [0x07, 0x1A, 0x00, 0x00]))
                     DispatchQueue.main.async {
                         self.onZoomIn?()
                     }
                     
                 case 52, 54, 58:
                     log("Phím cùm xe: Thu nhỏ (-) / Zoom Out (mã svc \(f.svc))")
+                    // Phản hồi ACK ngay cho xe để xe mở khóa sự kiện phím tiếp theo (chuẩn Lo3/c;->j(""))
+                    writeEAData(NaviLite.frame(6, 14, 1, [0x07, 0x1A, 0x00, 0x00]))
                     DispatchQueue.main.async {
                         self.onZoomOut?()
                     }
@@ -570,10 +578,10 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Cập nhật tên con đường xe đang chạy lên thanh footer của màn hình xe (Garmin svc 14 sub 0x1A)
-    public func updateCurrentRoadNameOnTFT(_ rawRoadName: String) {
+    // MARK: - Cập nhật tên con đường xe đang chạy lên thanh footer của màn hình xe (Garmin svc 4 & svc 14)
+    public func updateCurrentRoadNameOnTFT(_ rawRoadName: String, distanceMeters: Double = 0.0, maneuverIcon: UInt8 = 0) {
         let clean = cleanVietnameseForGarmin(rawRoadName)
-        guard !clean.isEmpty && clean != lastSentRoadName else { return }
+        guard !clean.isEmpty else { return }
         lastSentRoadName = clean
         
         DispatchQueue.main.async {
@@ -582,13 +590,32 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         
         guard isMFiConnected && eaOutput != nil else { return }
         
-        let roadBytes = [UInt8](clean.prefix(64).utf8)
-        let len = roadBytes.count
-        var payload: [UInt8] = [0x07, 0x1A, UInt8(len & 0xff), UInt8((len >> 8) & 0xff)]
-        payload.append(contentsOf: roadBytes)
+        // 1. GỬI SERVICE 4: Chuẩn giao tiếp Garmin StreetCross của xe Yamaha NMAX/XMAX để hiển thị tên đường ở thanh footer
+        var unitStr = "m"
+        var distVal = Float(distanceMeters)
+        if distanceMeters >= 1000.0 {
+            unitStr = "km"
+            distVal = Float(distanceMeters / 1000.0)
+        }
+        let unitBytes = [UInt8](unitStr.utf8)
+        let roadBytes = [UInt8](clean.prefix(140).utf8)
         
-        log("Đồng hồ xe: Cập nhật tên đường footer: ▲ \(clean)")
-        writeEAData(NaviLite.frame(6, 14, 1, payload))
+        var s4 = [UInt8]()
+        s4.append(maneuverIcon)
+        var floatLE = distVal.bitPattern.littleEndian
+        withUnsafeBytes(of: floatLE) { s4.append(contentsOf: $0) }
+        s4.append(UInt8(unitBytes.count))
+        s4.append(UInt8(roadBytes.count))
+        s4.append(contentsOf: unitBytes)
+        s4.append(contentsOf: roadBytes)
+        
+        log("Đồng hồ xe: Gửi Service 4 cập nhật footer: ▲ \(clean)")
+        writeEAData(NaviLite.frame(6, 4, 1, s4))
+        
+        // 2. Gửi thêm Service 14 sub 0x1A dự phòng
+        var s14: [UInt8] = [0x07, 0x1A, UInt8(roadBytes.count & 0xff), 0x00]
+        s14.append(contentsOf: roadBytes)
+        writeEAData(NaviLite.frame(6, 14, 1, s14))
     }
     
     public func cleanVietnameseForGarmin(_ str: String) -> String {
