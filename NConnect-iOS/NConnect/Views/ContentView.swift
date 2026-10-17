@@ -43,21 +43,11 @@ public struct ContentView: View {
         .onAppear {
             // Cho phép màn hình tắt tự động theo cài đặt của máy
             UIApplication.shared.isIdleTimerDisabled = false
-            ccuManager.onZoomIn = { [weak streamRenderer, weak ccuManager] in
-                if CallNotificationManager.shared.isCallRinging {
-                    ccuManager?.log("Phím cùm xe (+): Đang có cuộc gọi đến -> Trả lời cuộc gọi!")
-                    CallNotificationManager.shared.answerCall()
-                } else {
-                    streamRenderer?.zoomIn()
-                }
+            ccuManager.onZoomIn = { [weak streamRenderer] in
+                streamRenderer?.zoomIn()
             }
-            ccuManager.onZoomOut = { [weak streamRenderer, weak ccuManager] in
-                if CallNotificationManager.shared.isCallRinging || CallNotificationManager.shared.isCallConnected {
-                    ccuManager?.log("Phím cùm xe (-): Đang có cuộc gọi -> Từ chối / Kết thúc cuộc gọi!")
-                    CallNotificationManager.shared.rejectCall()
-                } else {
-                    streamRenderer?.zoomOut()
-                }
+            ccuManager.onZoomOut = { [weak streamRenderer] in
+                streamRenderer?.zoomOut()
             }
             ccuManager.onStopRoute = { [weak navEngine] in
                 navEngine?.stopNavigation()
@@ -71,11 +61,6 @@ public struct ContentView: View {
                     nav.calculateRoute(to: coord, destinationTitle: homeTitle)
                 } else {
                     ccuManager?.log("⚠️ Menu xe: Chưa cài đặt địa chỉ Nhà")
-                    AppNotificationManager.shared.postNotification(
-                        appName: "NConnect",
-                        sender: "Chưa có địa chỉ Nhà",
-                        message: "Vào Cài đặt để lưu vị trí Nhà của bạn."
-                    )
                 }
             }
             ccuManager.onGoToWork = { [weak navEngine, weak ccuManager] in
@@ -87,11 +72,6 @@ public struct ContentView: View {
                     nav.calculateRoute(to: coord, destinationTitle: workTitle)
                 } else {
                     ccuManager?.log("⚠️ Menu xe: Chưa cài đặt địa chỉ Nơi làm việc")
-                    AppNotificationManager.shared.postNotification(
-                        appName: "NConnect",
-                        sender: "Chưa có Chỗ làm",
-                        message: "Vào Cài đặt để lưu nơi làm việc của bạn."
-                    )
                 }
             }
             ccuManager.onFindGasStation = { [weak navEngine, weak ccuManager] in
@@ -118,11 +98,6 @@ public struct ContentView: View {
                     nav.calculateRoute(to: coord, destinationTitle: favTitle)
                 } else {
                     ccuManager?.log("⚠️ Menu xe: Chưa lưu địa điểm Yêu thích nào")
-                    AppNotificationManager.shared.postNotification(
-                        appName: "NConnect",
-                        sender: "Mục Yêu thích",
-                        message: "Vào Cài đặt để thêm các địa điểm Yêu thích."
-                    )
                 }
             }
             ccuManager.onSelectPoi = { [weak navEngine, weak ccuManager] index, listId in

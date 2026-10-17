@@ -247,38 +247,12 @@ public final class TFTStreamRenderer: ObservableObject {
     private var lastRenderedAlternativeRoutes: [OSMRoute] = []
     private var lastRenderedInstruction: NavigationInstruction?
     private var lastRenderedSpeedKmh: Double = 0.0
-    private var lastRenderedTelemetry: BikeTelemetry = BikeTelemetry()
     private var lastRenderedIsRerouting: Bool = false
     private var lastPrefetchedRouteKey: String = ""
-    private var cancellables = Set<AnyCancellable>()
     
     public init(width: Int = 480, height: Int = 234) {
         self.targetWidth = width
         self.targetHeight = height
-        
-        CallNotificationManager.shared.$isCallRinging
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.triggerImmediateReRender()
-            }
-            .store(in: &cancellables)
-            
-        CallNotificationManager.shared.$isCallConnected
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.triggerImmediateReRender()
-            }
-            .store(in: &cancellables)
-            
-        AppNotificationManager.shared.$activeNotification
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.triggerImmediateReRender()
-            }
-            .store(in: &cancellables)
     }
     
     private func beginBgTask() {
@@ -344,7 +318,6 @@ public final class TFTStreamRenderer: ObservableObject {
                 alternativeRoutes: nav.alternativeRoutes,
                 instruction: nav.currentInstruction,
                 speedKmh: displaySpeed,
-                telemetry: ccu.telemetry,
                 isRerouting: nav.isRerouting
             ) { frameData in
                 guard let data = frameData else { return }
@@ -392,7 +365,6 @@ public final class TFTStreamRenderer: ObservableObject {
             alternativeRoutes: lastRenderedAlternativeRoutes,
             instruction: inst,
             speedKmh: lastRenderedSpeedKmh,
-            telemetry: lastRenderedTelemetry,
             isRerouting: lastRenderedIsRerouting
         ) { [weak self] frameData in
             guard let data = frameData, let ccu = self?.ccuManager else { return }
@@ -409,7 +381,6 @@ public final class TFTStreamRenderer: ObservableObject {
         alternativeRoutes: [OSMRoute] = [],
         instruction: NavigationInstruction,
         speedKmh: Double,
-        telemetry: BikeTelemetry,
         isRerouting: Bool = false,
         completion: @escaping (Data?) -> Void
     ) {
@@ -418,7 +389,6 @@ public final class TFTStreamRenderer: ObservableObject {
         self.lastRenderedAlternativeRoutes = alternativeRoutes
         self.lastRenderedInstruction = instruction
         self.lastRenderedSpeedKmh = speedKmh
-        self.lastRenderedTelemetry = telemetry
         self.lastRenderedIsRerouting = isRerouting
         
         // Tự động tải trước toàn bộ ngói bản đồ dọc lộ trình khi có tuyến đường mới
@@ -443,8 +413,7 @@ public final class TFTStreamRenderer: ObservableObject {
                 let placeholderData = self.renderFallbackMapFrame(
                     title: "OpenStreetMap",
                     subtitle: "Đang lấy tín hiệu GPS từ iPhone...",
-                    speedKmh: speedKmh,
-                    telemetry: telemetry
+                    speedKmh: speedKmh
                 )
                 completion(placeholderData)
                 return
@@ -715,110 +684,6 @@ public final class TFTStreamRenderer: ObservableObject {
         let bannerHeight: CGFloat = 62.0
         let bannerRect = CGRect(x: 0, y: 0, width: size.width, height: bannerHeight)
         
-        // 0. Khi có cuộc gọi đến hoặc đang đàm thoại (Ưu tiên số 1, nền xanh lá, hiển thị tên/SĐT cho tới khi cuộc gọi kết thúc)
-        if CallNotificationManager.shared.isCallRinging || CallNotificationManager.shared.isCallConnected {
-            let isRinging = CallNotificationManager.shared.isCallRinging
-            // Nền xanh lá cây (Emerald Green) cao cấp
-            ctx.setFillColor(UIColor(red: 0.08, green: 0.65, blue: 0.24, alpha: 0.98).cgColor)
-            ctx.fill(bannerRect)
-            
-            // Đường viền phát sáng màu vàng chanh / trắng ánh kim ở mép dưới
-            ctx.setStrokeColor(UIColor(red: 0.85, green: 1.0, blue: 0.88, alpha: 1.0).cgColor)
-            ctx.setLineWidth(2.5)
-            ctx.move(to: CGPoint(x: 0, y: bannerHeight))
-            ctx.addLine(to: CGPoint(x: size.width, y: bannerHeight))
-            ctx.strokePath()
-            
-            // Dòng 1: Tag trạng thái nhỏ phía trên
-            let statusTag = isRinging ? "📞 CUỘC GỌI ĐẾN" : "📞 ĐANG ĐÀM THOẠI"
-            let tagAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 13, weight: .bold),
-                .foregroundColor: UIColor(red: 0.95, green: 1.0, blue: 0.82, alpha: 1.0)
-            ]
-            let tagSize = (statusTag as NSString).size(withAttributes: tagAttrs)
-            (statusTag as NSString).draw(
-                at: CGPoint(x: size.width / 2.0 - tagSize.width / 2.0, y: 6),
-                withAttributes: tagAttrs
-            )
-            
-            // Dòng 2: Tên người gọi hoặc số điện thoại (Chữ bự, nổi bật, căn giữa, không cần chú thích phím)
-            let rawCaller = CallNotificationManager.shared.callerName.trimmingCharacters(in: .whitespacesAndNewlines)
-            let callerText = rawCaller.isEmpty ? (isRinging ? "Cuộc gọi đến" : "Đang kết nối") : rawCaller
-            
-            var fontSize: CGFloat = 24.0
-            var callerAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: fontSize, weight: .heavy),
-                .foregroundColor: UIColor.white
-            ]
-            var callerSize = (callerText as NSString).size(withAttributes: callerAttrs)
-            // Thu nhỏ tự động nếu tên hoặc số điện thoại quá dài
-            if callerSize.width > (size.width - 24) {
-                fontSize = 19.0
-                callerAttrs[.font] = UIFont.systemFont(ofSize: fontSize, weight: .heavy)
-                callerSize = (callerText as NSString).size(withAttributes: callerAttrs)
-            }
-            (callerText as NSString).draw(
-                at: CGPoint(x: size.width / 2.0 - callerSize.width / 2.0, y: 25),
-                withAttributes: callerAttrs
-            )
-            return
-        }
-        
-        // 0.1 Thông báo từ ứng dụng khác (Zalo, Messenger, SMS, v.v. - Tự động biến mất theo số giây cài đặt)
-        if let notif = AppNotificationManager.shared.activeNotification {
-            let appLower = notif.appName.lowercased()
-            let bgColor: UIColor
-            if appLower.contains("zalo") {
-                bgColor = UIColor(red: 0.05, green: 0.44, blue: 0.92, alpha: 0.98)
-            } else if appLower.contains("mess") {
-                bgColor = UIColor(red: 0.45, green: 0.18, blue: 0.88, alpha: 0.98)
-            } else {
-                bgColor = UIColor(red: 0.12, green: 0.16, blue: 0.24, alpha: 0.98)
-            }
-            
-            ctx.setFillColor(bgColor.cgColor)
-            ctx.fill(bannerRect)
-            
-            ctx.setStrokeColor(UIColor(red: 0.35, green: 0.80, blue: 1.0, alpha: 1.0).cgColor)
-            ctx.setLineWidth(2.0)
-            ctx.move(to: CGPoint(x: 0, y: bannerHeight))
-            ctx.addLine(to: CGPoint(x: size.width, y: bannerHeight))
-            ctx.strokePath()
-            
-            // Dòng 1: Tên App & Người gửi
-            let senderTag = "💬 [\(notif.appName.uppercased())]  \(notif.sender.uppercased())"
-            let tagAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 13, weight: .bold),
-                .foregroundColor: UIColor(red: 0.9, green: 0.96, blue: 1.0, alpha: 1.0)
-            ]
-            let tagSize = (senderTag as NSString).size(withAttributes: tagAttrs)
-            (senderTag as NSString).draw(
-                at: CGPoint(x: max(16, size.width / 2.0 - tagSize.width / 2.0), y: 6),
-                withAttributes: tagAttrs
-            )
-            
-            // Dòng 2: Nội dung tin nhắn
-            let msgText = notif.message.isEmpty ? "Đã gửi một thông báo mới" : notif.message
-            let msgAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 20, weight: .heavy),
-                .foregroundColor: UIColor.white
-            ]
-            var displayMsg = msgText
-            var msgSize = (displayMsg as NSString).size(withAttributes: msgAttrs)
-            if msgSize.width > (size.width - 30) {
-                while displayMsg.count > 10 && msgSize.width > (size.width - 30) {
-                    displayMsg.removeLast()
-                    msgSize = ((displayMsg + "...") as NSString).size(withAttributes: msgAttrs)
-                }
-                displayMsg += "..."
-            }
-            (displayMsg as NSString).draw(
-                at: CGPoint(x: max(12, size.width / 2.0 - msgSize.width / 2.0), y: 26),
-                withAttributes: msgAttrs
-            )
-            return
-        }
-        
         guard instruction.isNavigating || isRerouting || instruction.hasArrived else { return }
         
         // 1. Khi đang tự động vẽ lại lộ trình
@@ -932,7 +797,7 @@ public final class TFTStreamRenderer: ObservableObject {
         text.draw(at: CGPoint(x: size.width - 92, y: size.height - 15), withAttributes: attrs)
     }
     
-    private func renderFallbackMapFrame(title: String, subtitle: String, speedKmh: Double, telemetry: BikeTelemetry) -> Data? {
+    private func renderFallbackMapFrame(title: String, subtitle: String, speedKmh: Double) -> Data? {
         let size = CGSize(width: targetWidth, height: targetHeight)
         UIGraphicsBeginImageContextWithOptions(size, true, 1.0)
         guard let ctx = UIGraphicsGetCurrentContext() else {

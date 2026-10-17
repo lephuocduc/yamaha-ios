@@ -10,8 +10,6 @@ public struct MainDashboardView: View {
     @State private var showSearchSheet = false
     @State private var showGasSheet = false
     @State private var settingLocationType: SavedLocation.LocationType? = nil
-    @ObservedObject private var callManager = CallNotificationManager.shared
-    @ObservedObject private var notificationManager = AppNotificationManager.shared
     @ObservedObject private var parkingManager = ParkingLocationManager.shared
     
     public init(ccuManager: YamahaCCUManager, navEngine: NavigationEngine, streamRenderer: TFTStreamRenderer) {
@@ -66,16 +64,10 @@ public struct MainDashboardView: View {
                             .shadow(color: Color.green.opacity(0.4), radius: 8)
                         }
                         
-                        // 0. Banner cuộc gọi đến (nếu có)
-                        callNotificationBanner
-                        
                         // 1. Thẻ trạng thái kết nối xe
                         connectionStatusCard
                         
-                        // 2. Thẻ thông số xe (Telemetry HUD)
-                        telemetryCard
-                        
-                        // 3. Vị trí đỗ xe tự động (Find My Bike)
+                        // 2. Vị trí đỗ xe tự động (Find My Bike)
                         parkingLocationCard
                         
                         // 4. Khung xem trước màn hình TFT (TFT Mirror Live Preview)
@@ -111,123 +103,6 @@ public struct MainDashboardView: View {
             }
             .sheet(isPresented: $showGasSheet) {
                 gasStationsSheet
-            }
-        }
-    }
-    
-    // MARK: - Banner cảnh báo cuộc gọi đến
-    private var callNotificationBanner: some View {
-        Group {
-            if callManager.isCallRinging {
-                HStack(spacing: 12) {
-                    Image(systemName: "phone.badge.waveform.fill")
-                        .font(.title2)
-                        .foregroundColor(.white)
-                    
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("CUỘC GỌI ĐẾN")
-                            .font(.caption2.bold())
-                            .foregroundColor(Color(red: 0.9, green: 1.0, blue: 0.85))
-                        Text(callManager.callerName.isEmpty ? "Cuộc gọi đến" : callManager.callerName)
-                            .font(.headline)
-                            .fontWeight(.heavy)
-                            .foregroundColor(.white)
-                    }
-                    
-                    Spacer()
-                    
-                    Button(action: { callManager.answerCall() }) {
-                        Image(systemName: "phone.fill")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .padding(10)
-                            .background(Color.green)
-                            .clipShape(Circle())
-                    }
-                    
-                    Button(action: { callManager.rejectCall() }) {
-                        Image(systemName: "phone.down.fill")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .padding(10)
-                            .background(Color.red)
-                            .clipShape(Circle())
-                    }
-                }
-                .padding()
-                .background(Color(red: 0.08, green: 0.65, blue: 0.24))
-                .cornerRadius(14)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color.white.opacity(0.4), lineWidth: 1.5)
-                )
-            } else if callManager.isCallConnected {
-                HStack(spacing: 12) {
-                    Image(systemName: "phone.fill")
-                        .font(.title2)
-                        .foregroundColor(.green)
-                    
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("ĐANG ĐÀM THOẠI")
-                            .font(.caption2.bold())
-                            .foregroundColor(.green)
-                        Text(callManager.callerName.isEmpty ? "Đang kết nối" : callManager.callerName)
-                            .font(.headline)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                    }
-                    
-                    Spacer()
-                    
-                    Button(action: { callManager.rejectCall() }) {
-                        Image(systemName: "phone.down.fill")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                            .padding(10)
-                            .background(Color.red)
-                            .clipShape(Circle())
-                    }
-                }
-                .padding()
-                .background(Color(red: 0.05, green: 0.35, blue: 0.15))
-                .cornerRadius(14)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color.green.opacity(0.5), lineWidth: 1.5)
-                )
-            } else if let notif = notificationManager.activeNotification {
-                HStack(spacing: 12) {
-                    Image(systemName: "message.fill")
-                        .font(.title2)
-                        .foregroundColor(.white)
-                    
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(notif.appName.uppercased()) · \(notif.sender)")
-                            .font(.caption2.bold())
-                            .foregroundColor(.cyan)
-                        Text(notif.message)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.white)
-                            .lineLimit(2)
-                    }
-                    
-                    Spacer()
-                    
-                    Button(action: { notificationManager.dismissNotification() }) {
-                        Image(systemName: "xmark")
-                            .font(.caption.bold())
-                            .foregroundColor(.white.opacity(0.7))
-                            .padding(6)
-                    }
-                }
-                .padding()
-                .background(Color(red: 0.10, green: 0.16, blue: 0.26))
-                .cornerRadius(14)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color.cyan.opacity(0.6), lineWidth: 1.5)
-                )
             }
         }
     }
@@ -279,165 +154,6 @@ public struct MainDashboardView: View {
                     .foregroundColor(statusColor)
                     .cornerRadius(20)
                     .overlay(RoundedRectangle(cornerRadius: 20).stroke(statusColor, lineWidth: 1))
-            }
-        }
-        .padding()
-        .background(Color(white: 0.12))
-        .cornerRadius(16)
-    }
-    
-    // MARK: - Thẻ thông số xe (Telemetry HUD: RPM, Xăng, Ắc quy, Pin iPhone)
-    private var telemetryCard: some View {
-        VStack(spacing: 12) {
-            // Hàng 1: Tốc độ, RPM, Xăng
-            HStack(spacing: 12) {
-                // Tốc độ GPS
-                VStack(spacing: 4) {
-                    let currentSpeed = navEngine.currentSpeedKmh >= 2.5 ? navEngine.currentSpeedKmh : 0.0
-                    Text("\(Int(currentSpeed))")
-                        .font(.system(size: 34, weight: .heavy, design: .rounded))
-                        .foregroundColor(.white)
-                    Text("KM/H (GPS)")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.gray)
-                }
-                .frame(maxWidth: .infinity)
-                
-                Divider().background(Color.gray.opacity(0.3))
-                
-                // Vòng tua máy RPM
-                VStack(spacing: 4) {
-                    if ccuManager.telemetry.rpm >= 800 {
-                        Text("\(ccuManager.telemetry.rpm)")
-                            .font(.system(size: 24, weight: .bold, design: .rounded))
-                            .foregroundColor(ccuManager.telemetry.rpm > 7000 ? .orange : .cyan)
-                        Text("VÒNG/PHÚT")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.gray)
-                    } else {
-                        Text(ccuManager.isMFiConnected || ccuManager.state == .connected ? "0 RPM" : "--")
-                            .font(.system(size: 20, weight: .bold, design: .rounded))
-                            .foregroundColor(.cyan.opacity(0.85))
-                        Text("VÒNG TUA (ECU)")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.gray)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                
-                Divider().background(Color.gray.opacity(0.3))
-                
-                // Mức xăng
-                VStack(spacing: 4) {
-                    let fuel = ccuManager.telemetry.fuelPercent
-                    if fuel > 0 && fuel <= 100 {
-                        HStack(spacing: 2) {
-                            Image(systemName: "fuelpump.fill")
-                                .font(.system(size: 14))
-                                .foregroundColor(fuel <= 20 ? .red : .orange)
-                            Text("\(fuel)%")
-                                .font(.system(size: 22, weight: .bold, design: .rounded))
-                                .foregroundColor(fuel <= 20 ? .red : .orange)
-                        }
-                        Text("NHIÊN LIỆU")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.gray)
-                    } else {
-                        Text(ccuManager.isMFiConnected || ccuManager.state == .connected ? "100%" : "--")
-                            .font(.system(size: 20, weight: .bold, design: .rounded))
-                            .foregroundColor(.orange.opacity(0.85))
-                        Text("MỨC XĂNG (ECU)")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.gray)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-            }
-            
-            Divider().background(Color.white.opacity(0.08))
-            
-            // Hàng 2: Điện áp bình ắc quy, Nhiệt độ máy, Đồng bộ Pin iPhone lên xe
-            HStack(spacing: 8) {
-                // Điện áp bình ắc quy 12V
-                HStack(spacing: 6) {
-                    Image(systemName: "bolt.car.fill")
-                        .foregroundColor(ccuManager.telemetry.batteryVoltage >= 12.2 ? .green : .orange)
-                        .font(.system(size: 13))
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(String(format: "%.1fV", ccuManager.telemetry.batteryVoltage))
-                            .font(.system(size: 13, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                        Text(ccuManager.telemetry.batteryVoltage >= 12.2 ? "Ắc quy tốt" : "Bình yếu")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(ccuManager.telemetry.batteryVoltage >= 12.2 ? .green : .orange)
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(Color.white.opacity(0.05))
-                .cornerRadius(8)
-                
-                Spacer()
-                
-                // Nhiệt độ nước làm mát / động cơ
-                HStack(spacing: 6) {
-                    Image(systemName: "thermometer.medium")
-                        .foregroundColor(ccuManager.telemetry.engineTemperature > 95 ? .red : .cyan)
-                        .font(.system(size: 13))
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(ccuManager.telemetry.engineTemperature > 0 ? "\(Int(ccuManager.telemetry.engineTemperature))°C" : "85°C")
-                            .font(.system(size: 13, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                        Text("Nhiệt độ máy")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(.gray)
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(Color.white.opacity(0.05))
-                .cornerRadius(8)
-                
-                Spacer()
-                
-                // Đồng bộ pin iPhone lên màn hình xe
-                HStack(spacing: 6) {
-                    Image(systemName: ccuManager.isPhoneCharging ? "battery.100.bolt" : "battery.75")
-                        .foregroundColor(.green)
-                        .font(.system(size: 13))
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack(spacing: 2) {
-                            Text("\(ccuManager.phoneBatteryLevel)%")
-                                .font(.system(size: 13, weight: .bold, design: .rounded))
-                                .foregroundColor(.white)
-                            if ccuManager.isPhoneCharging {
-                                Image(systemName: "bolt.fill")
-                                    .font(.system(size: 9))
-                                    .foregroundColor(.yellow)
-                            }
-                        }
-                        Text("Đồng bộ xe")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(.green)
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(Color.white.opacity(0.05))
-                .cornerRadius(8)
-            }
-            
-            // Dòng trạng thái bắt tay CCU
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(ccuManager.isMFiConnected || ccuManager.state == .connected ? Color.green : Color.gray)
-                    .frame(width: 6, height: 6)
-                Text(ccuManager.isMFiConnected || ccuManager.state == .connected
-                     ? "Đã kết nối ECU & CCU • Bắt tay telemetry (309/310) • Đồng bộ icon cuộc gọi, tin nhắn & pin"
-                     : "Bắt tay thu thập dữ liệu ECU (RPM, bình ắc quy, mức xăng) tự động khi bật khóa xe.")
-                    .font(.system(size: 10))
-                    .foregroundColor(.gray.opacity(0.85))
-                Spacer()
             }
         }
         .padding()

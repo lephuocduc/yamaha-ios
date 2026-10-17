@@ -324,6 +324,30 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
 
 ---
 
+### 🔴 TÍNH NĂNG 17: Tinh giản hóa & Loại bỏ Thông báo / Cuộc gọi & Dữ liệu ECU/Pin theo yêu cầu (v0.5.22 Build 48)
+* **Yêu cầu người dùng**:
+  - Bỏ các chức năng thông báo app (Zalo, Messenger, SMS...) và cuộc gọi đến.
+  - Bỏ các chức năng đo đạc vòng tua máy (RPM), % nhiên liệu, điện áp ắc quy 12V, nhiệt độ máy, và % pin điện thoại.
+* **Các thay đổi kiến trúc & thực thi chi tiết**:
+  1. **Loại bỏ tính năng Cuộc gọi & Thông báo ứng dụng**:
+     - **TFT Stream Renderer**: Gỡ bỏ section vẽ banner đè cuộc gọi đến (nền xanh lá) và banner thông báo app (Zalo, Messenger, SMS). Luồng render TFT tập trung 100% vào bản đồ vệ tinh/vector, chỉ dẫn rẽ Turn-by-Turn, cự ly và tên đường.
+     - **Cùm phím điều khiển xe (+ / -)**: Gỡ bỏ toàn bộ logic chen ngang nghe/từ chối cuộc gọi. Phím `+` và `-` trên cùm tay lái xe (cả kênh MFi dịch vụ 51, 57, 52, 58 và StreetCross `.zoomIn`, `.zoomOut`) hoạt động thuần túy để phóng to và thu nhỏ bản đồ dẫn đường.
+     - **Giao diện App**: Gỡ bỏ các banner cuộc gọi, banner thông báo trên `MainDashboardView` và `LiveNavigationView`. Gỡ bỏ mục cài đặt thông báo, các nút gửi thử nghiệm (Zalo, SMS, Cuộc gọi) và tài liệu hướng dẫn ANCS/Shortcuts trên `SettingsView`. Gỡ bỏ bộ nhận `onOpenURL` trên `NConnectApp`.
+     - **An toàn PBX**: `CallNotificationManager.swift` và `AppNotificationManager.swift` được chuyển hóa thành các stub an toàn (empty/no-op) nhằm giữ nguyên cấu trúc `project.pbxproj` mà không sinh ra bất kỳ tiến trình theo dõi CallKit hay thông báo nào.
+  2. **Loại bỏ chức năng Vòng tua máy (RPM), % Nhiên liệu, Ắc quy, Nhiệt độ máy, % Pin**:
+     - **CCU Telemetry**: Gỡ bỏ thuật toán bóc tách RPM, mức xăng, điện áp bình 12V và nhiệt độ nước làm mát trong `parseTelemetry`. Giữ nguyên phản hồi ACK Bắt tay ECU (`0x0135` -> `0x0136`) để ECU xe không ngắt kết nối CCU.
+     - **Giám sát & Đồng bộ Pin iPhone**: Gỡ bỏ `setupPhoneBatteryMonitoring()`, bộ đếm `batteryTimer`, và hàm gửi lệnh đồng bộ pin lên màn hình xe (`Command ID 316` / MFi Service 13 & 12).
+     - **Giao diện HUD**: Gỡ bỏ hoàn toàn thẻ `telemetryCard` trên `MainDashboardView`.
+  3. **Giao diện người dùng sau khi tinh gọn**:
+     - Dashboard gọn gàng, tải nhanh, tập trung tối đa vào trải nghiệm lái xe:
+       1. Trạng thái kết nối xe (MFi / BLE).
+       2. Vị trí đỗ xe tự động (Find My Bike với Apple Maps / Google Maps).
+       3. Khung xem trước trực tiếp màn hình TFT Mirror.
+       4. Tác vụ nhanh (Nhà, Chỗ làm, Cây xăng, Mục yêu thích).
+       5. Danh sách các địa điểm yêu thích đã lưu.
+
+---
+
 ## 4. QUY TRÌNH BIÊN DỊCH VÀ PHÁT HÀNH (CI/CD)
 - Dự án sử dụng GitHub Actions workflow (`.github/workflows/build-ios.yml`).
 - Mỗi khi có commit mới được push lên nhánh `main`, hệ thống tự động:
@@ -331,5 +355,6 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
   2. Biên dịch dự án bằng lệnh `xcodebuild` (SDK `iphoneos`, cấu hình `Release`).
   3. Đóng gói thư mục `Payload` thành file `NConnect.ipa`.
   4. Xuất file Artifact `NConnect-iOS-IPA` để tải về và cài đặt trực tiếp qua TrollStore / AltStore / Sideloadly / Scarlet.
+
 
 

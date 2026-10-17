@@ -80,8 +80,6 @@ public struct LiveNavigationView: View {
     @State private var showSearchSheet = false
     @State private var searchQuery = ""
     @State private var showTFTMiniPreview = true
-    @ObservedObject private var callManager = CallNotificationManager.shared
-    @ObservedObject private var notificationManager = AppNotificationManager.shared
     @ObservedObject private var savedPlaces = SavedPlacesManager.shared
     @ObservedObject private var parkingManager = ParkingLocationManager.shared
     
@@ -129,121 +127,6 @@ public struct LiveNavigationView: View {
             .ignoresSafeArea(edges: .top)
             
             VStack {
-                // Banner cuộc gọi đến trên màn hình dẫn đường
-                if callManager.isCallRinging {
-                    HStack(spacing: 12) {
-                        Image(systemName: "phone.badge.waveform.fill")
-                            .font(.title2)
-                            .foregroundColor(.white)
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("CUỘC GỌI ĐẾN")
-                                .font(.caption2.bold())
-                                .foregroundColor(Color(red: 0.9, green: 1.0, blue: 0.85))
-                            Text(callManager.callerName.isEmpty ? "Cuộc gọi đến" : callManager.callerName)
-                                .font(.headline)
-                                .fontWeight(.heavy)
-                                .foregroundColor(.white)
-                        }
-                        
-                        Spacer()
-                        
-                        Button(action: { callManager.answerCall() }) {
-                            Image(systemName: "phone.fill")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .padding(10)
-                                .background(Color.green)
-                                .clipShape(Circle())
-                        }
-                        
-                        Button(action: { callManager.rejectCall() }) {
-                            Image(systemName: "phone.down.fill")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .padding(10)
-                                .background(Color.red)
-                                .clipShape(Circle())
-                        }
-                    }
-                    .padding(12)
-                    .background(Color(red: 0.08, green: 0.65, blue: 0.24))
-                    .cornerRadius(14)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14)
-                            .stroke(Color.white.opacity(0.4), lineWidth: 1.5)
-                    )
-                    .padding(.horizontal)
-                } else if callManager.isCallConnected {
-                    HStack(spacing: 12) {
-                        Image(systemName: "phone.fill")
-                            .font(.title2)
-                            .foregroundColor(.green)
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("ĐANG ĐÀM THOẠI")
-                                .font(.caption2.bold())
-                                .foregroundColor(.green)
-                            Text(callManager.callerName.isEmpty ? "Đang kết nối" : callManager.callerName)
-                                .font(.headline)
-                                .fontWeight(.bold)
-                                .foregroundColor(.white)
-                        }
-                        
-                        Spacer()
-                        
-                        Button(action: { callManager.rejectCall() }) {
-                            Image(systemName: "phone.down.fill")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .padding(10)
-                                .background(Color.red)
-                                .clipShape(Circle())
-                        }
-                    }
-                    .padding(12)
-                    .background(Color(red: 0.05, green: 0.35, blue: 0.15))
-                    .cornerRadius(14)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14)
-                            .stroke(Color.green.opacity(0.5), lineWidth: 1.5)
-                    )
-                    .padding(.horizontal)
-                } else if let notif = notificationManager.activeNotification {
-                    HStack(spacing: 12) {
-                        Image(systemName: "message.fill")
-                            .font(.title2)
-                            .foregroundColor(.white)
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(notif.appName.uppercased()) · \(notif.sender)")
-                                .font(.caption2.bold())
-                                .foregroundColor(.cyan)
-                            Text(notif.message)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.white)
-                                .lineLimit(2)
-                        }
-                        
-                        Spacer()
-                        
-                        Button(action: { notificationManager.dismissNotification() }) {
-                            Image(systemName: "xmark")
-                                .font(.caption.bold())
-                                .foregroundColor(.white.opacity(0.7))
-                                .padding(6)
-                        }
-                    }
-                    .padding(12)
-                    .background(Color(red: 0.10, green: 0.16, blue: 0.26))
-                    .cornerRadius(14)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14)
-                            .stroke(Color.cyan.opacity(0.6), lineWidth: 1.5)
-                    )
-                    .padding(.horizontal)
-                }
                 
                 // Thông báo khi xe đã đến nơi đích
                 if let arrivalMsg = navEngine.arrivalMessage {

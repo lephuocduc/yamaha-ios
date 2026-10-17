@@ -142,7 +142,6 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     private var naviSeq: UInt16 = 1
     private var isHandshaking: Bool = false
     private var wasConnectedToBike: Bool = false
-    private var batteryTimer: Timer?
     
     // Giao thức StreetCross tích hợp
     public let streetCross = StreetCrossProtocol()
@@ -153,23 +152,9 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         streetCross.onHandlebarButtonReceived = { [weak self] btn in
             switch btn {
             case .zoomIn:
-                DispatchQueue.main.async {
-                    if CallNotificationManager.shared.isCallRinging {
-                        self?.log("Phím cùm xe (+): Đang có cuộc gọi đến -> Trả lời cuộc gọi!")
-                        CallNotificationManager.shared.answerCall()
-                    } else {
-                        self?.onZoomIn?()
-                    }
-                }
+                DispatchQueue.main.async { self?.onZoomIn?() }
             case .zoomOut:
-                DispatchQueue.main.async {
-                    if CallNotificationManager.shared.isCallRinging || CallNotificationManager.shared.isCallConnected {
-                        self?.log("Phím cùm xe (-): Đang có cuộc gọi -> Từ chối / Kết thúc cuộc gọi!")
-                        CallNotificationManager.shared.rejectCall()
-                    } else {
-                        self?.onZoomOut?()
-                    }
-                }
+                DispatchQueue.main.async { self?.onZoomOut?() }
             case .stopRoute:
                 DispatchQueue.main.async { self?.onStopRoute?() }
             case .goHome:
@@ -188,12 +173,10 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         }
         centralManager = CBCentralManager(delegate: self, queue: .main)
         setupExternalAccessory()
-        setupPhoneBatteryMonitoring()
     }
     
     deinit {
         NotificationCenter.default.removeObserver(self)
-        stopBatterySyncTimer()
         closeEASession()
     }
     
@@ -409,12 +392,7 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     // Phản hồi ACK ngay cho xe để xe mở khóa sự kiện phím tiếp theo (chuẩn Lo3/c;->j(""))
                     writeEAData(NaviLite.frame(6, 14, 1, [0x07, 0x1A, 0x00, 0x00]))
                     DispatchQueue.main.async {
-                        if CallNotificationManager.shared.isCallRinging {
-                            self.log("Phím cùm xe (+): Đang có cuộc gọi đến -> Trả lời cuộc gọi!")
-                            CallNotificationManager.shared.answerCall()
-                        } else {
-                            self.onZoomIn?()
-                        }
+                        self.onZoomIn?()
                     }
                     
                 case 52, 58:
@@ -422,12 +400,7 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     // Phản hồi ACK ngay cho xe để xe mở khóa sự kiện phím tiếp theo (chuẩn Lo3/c;->j(""))
                     writeEAData(NaviLite.frame(6, 14, 1, [0x07, 0x1A, 0x00, 0x00]))
                     DispatchQueue.main.async {
-                        if CallNotificationManager.shared.isCallRinging || CallNotificationManager.shared.isCallConnected {
-                            self.log("Phím cùm xe (-): Đang có cuộc gọi -> Từ chối / Kết thúc cuộc gọi!")
-                            CallNotificationManager.shared.rejectCall()
-                        } else {
-                            self.onZoomOut?()
-                        }
+                        self.onZoomOut?()
                     }
                     
                 case 53:
@@ -1040,137 +1013,20 @@ extension YamahaCCUManager: CBPeripheralDelegate {
         }
     }
     
-    // MARK: - Quản lý giám sát pin iPhone & Đồng bộ lên cụm đồng hồ xe
-    private func setupPhoneBatteryMonitoring() {
-        UIDevice.current.isBatteryMonitoringEnabled = true
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(batteryStateOrLevelChanged),
-            name: UIDevice.batteryLevelDidChangeNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(batteryStateOrLevelChanged),
-            name: UIDevice.batteryStateDidChangeNotification,
-            object: nil
-        )
-    }
-    
-    @objc private func batteryStateOrLevelChanged() {
-        syncPhoneBatteryAndStatusToCluster()
-    }
-    
-    private func startBatterySyncTimer() {
-        batteryTimer?.invalidate()
-        batteryTimer = Timer.scheduledTimer(withTimeInterval: 25.0, repeats: true) { [weak self] _ in
-            self?.syncPhoneBatteryAndStatusToCluster()
-        }
-        syncPhoneBatteryAndStatusToCluster()
-    }
-    
-    private func stopBatterySyncTimer() {
-        batteryTimer?.invalidate()
-        batteryTimer = nil
-    }
-    
-    // MARK: - Đồng bộ mức pin iPhone & trạng thái kết nối lên màn hình xe (Command ID 316 = 0x013C)
-    @objc public func syncPhoneBatteryAndStatusToCluster() {
-        guard state == .connected || state == .streaming || isMFiConnected else { return }
-        
-        UIDevice.current.isBatteryMonitoringEnabled = true
-        let rawLevel = UIDevice.current.batteryLevel
-        let levelPercent = rawLevel < 0 ? 85 : max(1, min(100, Int(rawLevel * 100)))
-        let bState = UIDevice.current.batteryState
-        let isCharging = (bState == .charging || bState == .full)
-        let battByte = UInt8(levelPercent & 0x7F) | (isCharging ? 0x80 : 0x00)
-        
-        DispatchQueue.main.async {
-            self.phoneBatteryLevel = levelPercent
-            self.isPhoneCharging = isCharging
-        }
-        
-        // 1. Kênh BLE CCU: Gửi Lệnh 316 (0x013C: [0x3C, 0x01, mediaVol, callVol, battByte, signal])
-        if let peripheral = currentPeripheral, let writeChar = ddtWriteChar, (state == .connected || state == .streaming) {
-            let mediaVol: UInt8 = 80
-            let callVol: UInt8 = 80
-            let gsmSignal: UInt8 = 4
-            let payload = Data([0x3C, 0x01, mediaVol, callVol, battByte, gsmSignal])
-            let writeType: CBCharacteristicWriteType = writeChar.properties.contains(.writeWithoutResponse) ? .withoutResponse : .withResponse
-            peripheral.writeValue(payload, for: writeChar, type: writeType)
-            log("[Đồng hồ xe] 🔋 Đồng bộ pin iPhone (\(levelPercent)%\(isCharging ? " ⚡Đang sạc" : "")) lên màn hình CCU")
-        }
-        
-        // 2. Kênh MFi ExternalAccessory (Garmin StreetCross Service 13 & 12)
-        if isMFiConnected && eaOutput != nil {
-            writeEAData(NaviLite.frame(6, 13, 0, [1, 0]))
-            writeEAData(NaviLite.frame(6, 12, 0, [1, 0]))
-        }
-    }
-    
-    // MARK: - Đồng bộ Icon cuộc gọi lên mặt đồng hồ xe (Command ID 308 = 0x0134)
-    public func sendCallIndicatorToCluster(isActive: Bool) {
-        log("[Đồng hồ xe] 📞 \(isActive ? "BẬT" : "TẮT") icon cuộc gọi trên mặt đồng hồ xe")
-        if let peripheral = currentPeripheral, let writeChar = ddtWriteChar {
-            let payload = Data([0x34, 0x01, isActive ? 0x01 : 0x00])
-            let writeType: CBCharacteristicWriteType = writeChar.properties.contains(.writeWithoutResponse) ? .withoutResponse : .withResponse
-            peripheral.writeValue(payload, for: writeChar, type: writeType)
-        }
-        if isMFiConnected && eaOutput != nil {
-            writeEAData(NaviLite.frame(6, 12, 0, [isActive ? 1 : 0, 0]))
-        }
-    }
-    
-    // MARK: - Đồng bộ Icon tin nhắn / thông báo lên mặt đồng hồ xe (Command ID 303 = 0x012F)
-    public func sendMessageIndicatorToCluster(appName: String, sender: String, message: String) {
-        log("[Đồng hồ xe] ✉️ BẬT icon tin nhắn/thông báo [\(appName)] từ \(sender) trên đồng hồ xe")
-        if let peripheral = currentPeripheral, let writeChar = ddtWriteChar {
-            var payload = Data([0x2F, 0x01])
-            let cal = Calendar.current
-            let now = Date()
-            let year = UInt8(max(0, cal.component(.year, from: now) - 2000) & 0xFF)
-            let month = UInt8(cal.component(.month, from: now) & 0xFF)
-            let day = UInt8(cal.component(.day, from: now) & 0xFF)
-            let hour = UInt8(cal.component(.hour, from: now) & 0xFF)
-            let minute = UInt8(cal.component(.minute, from: now) & 0xFF)
-            let second = UInt8(cal.component(.second, from: now) & 0xFF)
-            payload.append(contentsOf: [year, month, day, hour, minute, second])
-            
-            let cleanTitle = cleanVietnameseForGarmin("\(appName): \(sender)")
-            let titleBytes = [UInt8](cleanTitle.prefix(40).utf8)
-            payload.append(UInt8(titleBytes.count))
-            payload.append(contentsOf: titleBytes)
-            
-            let cleanMsg = cleanVietnameseForGarmin(message)
-            let msgBytes = [UInt8](cleanMsg.prefix(128).utf8)
-            let msgLen = UInt16(msgBytes.count)
-            payload.append(contentsOf: [UInt8(msgLen & 0xFF), UInt8((msgLen >> 8) & 0xFF)])
-            payload.append(contentsOf: msgBytes)
-            
-            let writeType: CBCharacteristicWriteType = writeChar.properties.contains(.writeWithoutResponse) ? .withoutResponse : .withResponse
-            peripheral.writeValue(payload, for: writeChar, type: writeType)
-        }
-    }
-    
-    public func clearMessageIndicatorOnCluster() {
-        log("[Đồng hồ xe] ✉️ TẮT icon tin nhắn/thông báo trên đồng hồ xe")
-        if let peripheral = currentPeripheral, let writeChar = ddtWriteChar {
-            let payload = Data([0x2F, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
-            let writeType: CBCharacteristicWriteType = writeChar.properties.contains(.writeWithoutResponse) ? .withoutResponse : .withResponse
-            peripheral.writeValue(payload, for: writeChar, type: writeType)
-        }
-    }
+    // MARK: - Đồng bộ & Stub thông báo
+    public func syncPhoneBatteryAndStatusToCluster() {}
+    public func sendCallIndicatorToCluster(isActive: Bool) {}
+    public func sendMessageIndicatorToCluster(appName: String, sender: String, message: String) {}
+    public func clearMessageIndicatorOnCluster() {}
     
     // MARK: - Tự động ghi nhớ vị trí đỗ xe khi tắt máy (Find My Bike)
     private func onBikeConnectedSuccessfully() {
         wasConnectedToBike = true
-        startBatterySyncTimer()
     }
     
     private func triggerParkingSaveIfAppropriate() {
         guard wasConnectedToBike else { return }
         wasConnectedToBike = false
-        stopBatterySyncTimer()
         
         let bikeName = connectedBike?.name ?? (!mfiAccessoryName.isEmpty ? mfiAccessoryName : "Yamaha NMAX")
         if let currentCoord = NavigationEngine.shared?.currentLocation?.coordinate {
@@ -1179,15 +1035,12 @@ extension YamahaCCUManager: CBPeripheralDelegate {
         }
     }
     
-    // MARK: - Giải mã thông số xe (Telemetry: RPM, Battery Voltage, Fuel %, Coolant Temp)
+    // MARK: - Bắt tay ECU (Handshake ACK)
     private func parseTelemetry(_ data: Data) {
         let bytes = [UInt8](data)
         guard bytes.count >= 2 else { return }
         
-        let hex = bytes.map { String(format: "%02X", $0) }.joined(separator: " ")
-        log("📡 Nhận gói tin Telemetry (\(bytes.count)B): \(hex)")
-        
-        // 1. Phản hồi Bắt tay ECU (Handshake ACK) khi xe gửi gói 309 (0x0135)
+        // Phản hồi Bắt tay ECU (Handshake ACK) khi xe gửi gói 309 (0x0135)
         let packetHeader = (Int(bytes[1]) << 8) | Int(bytes[0])
         if packetHeader == 0x0135 || (bytes.count >= 2 && bytes[0] == 0x35 && bytes[1] == 0x01) {
             log("🤝 Bắt tay ECU: Xe gửi mã 309 (0x0135) -> Phản hồi mã 310 (0x0136)")
@@ -1195,72 +1048,6 @@ extension YamahaCCUManager: CBPeripheralDelegate {
                 let ackPayload = Data([0x36, 0x01, 0x00])
                 let writeType: CBCharacteristicWriteType = writeChar.properties.contains(.writeWithoutResponse) ? .withoutResponse : .withResponse
                 peripheral.writeValue(ackPayload, for: writeChar, type: writeType)
-            }
-            return
-        }
-        
-        // Bỏ qua các mã gói tin điều khiển / handshake ban đầu của CCU (0x1502, 0x0102, 0x0101)
-        if packetHeader == 0x1502 || packetHeader == 0x0102 || packetHeader == 0x0101 {
-            return
-        }
-        
-        // 2. Tìm kiếm vòng tua máy (RPM) hợp lệ từ gói tin telemetry
-        var detectedRpm = 0
-        if bytes.count >= 4 {
-            let r1 = Int(bytes[2]) | (Int(bytes[3]) << 8)
-            let r2 = (Int(bytes[2]) << 8) | Int(bytes[3])
-            if r1 >= 800 && r1 <= 14000 { detectedRpm = r1 }
-            else if r2 >= 800 && r2 <= 14000 { detectedRpm = r2 }
-        }
-        if detectedRpm == 0 && bytes.count >= 6 {
-            let r3 = Int(bytes[4]) | (Int(bytes[5]) << 8)
-            let r4 = (Int(bytes[4]) << 8) | Int(bytes[5])
-            if r3 >= 800 && r3 <= 14000 { detectedRpm = r3 }
-            else if r4 >= 800 && r4 <= 14000 { detectedRpm = r4 }
-        }
-        if detectedRpm > 0 {
-            DispatchQueue.main.async {
-                self.telemetry.rpm = detectedRpm
-            }
-        }
-        
-        // 3. Tìm kiếm mức % nhiên liệu (từ 1% - 100%)
-        if bytes.count >= 6 {
-            for i in 4..<min(bytes.count, 14) {
-                let val = Int(bytes[i])
-                if val >= 5 && val <= 100 && val != (detectedRpm & 0xFF) && val != ((detectedRpm >> 8) & 0xFF) {
-                    DispatchQueue.main.async {
-                        self.telemetry.fuelPercent = val
-                    }
-                    break
-                }
-            }
-        }
-        
-        // 4. Tìm kiếm điện áp bình ắc quy 12V (giá trị x10: 110 - 155, tức 11.0V - 15.5V)
-        if bytes.count >= 5 {
-            for i in 2..<min(bytes.count, 16) {
-                let val = Int(bytes[i])
-                if val >= 115 && val <= 152 && val != (detectedRpm & 0xFF) && val != ((detectedRpm >> 8) & 0xFF) {
-                    let voltage = Double(val) / 10.0
-                    DispatchQueue.main.async {
-                        self.telemetry.batteryVoltage = voltage
-                    }
-                    break
-                }
-            }
-        }
-        
-        // 5. Tìm kiếm nhiệt độ máy / nước làm mát (35°C - 120°C)
-        if bytes.count >= 6 {
-            for i in 4..<min(bytes.count, 16) {
-                let val = Int(bytes[i])
-                if val >= 40 && val <= 115 && val != (detectedRpm & 0xFF) && val != Int(self.telemetry.batteryVoltage * 10) && val != self.telemetry.fuelPercent {
-                    DispatchQueue.main.async {
-                        self.telemetry.engineTemperature = Double(val)
-                    }
-                    break
-                }
             }
         }
     }
