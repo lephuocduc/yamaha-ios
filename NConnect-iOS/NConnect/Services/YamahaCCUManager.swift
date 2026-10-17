@@ -18,6 +18,84 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     // Giao thức MFi External Accessory của Garmin / Yamaha NaviLite
     public static let dashProtocol = "com.garmin.navilite.data"
     
+    // MARK: - Nhận diện thiết bị CCU chuẩn xe máy Yamaha & Lọc bỏ Smartwatch/Loa/Tai nghe
+    public static func isYamahaBikeCCU(name: String, advertisementData: [String: Any]) -> Bool {
+        // 1. Ưu tiên kiểm tra UUID dịch vụ trong gói tin BLE Advertisement
+        if let serviceUUIDs = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] {
+            if serviceUUIDs.contains(clusterLinkServiceUUID) || serviceUUIDs.contains(streetCrossServiceUUID) {
+                return true
+            }
+        }
+        
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let lower = trimmed.lowercased()
+        
+        // 2. DANH SÁCH ĐEN TUYỆT ĐỐI (Loại bỏ triệt để Smartwatch, Tai nghe, Loa, Thiết bị gia dụng)
+        let blacklistKeywords = [
+            // Smartwatch & Wearables (Garmin, Apple, Samsung, Xiaomi...)
+            "watch", "forerunner", "fenix", "epix", "venu", "vivo", "instinct",
+            "descent", "approach", "marq", "tactix", "enduro", "smartband", "band",
+            "fitbit", "galaxy watch", "apple watch", "wearable",
+            // Loa, Âm thanh & Tai nghe (Yamaha soundbar, earbuds, loa gia đình...)
+            "soundbar", "speaker", "loa", "earbud", "earphone", "headphone", "headset",
+            "airpod", "tai nghe", "receiver", "ampli", "amp", "musiccast",
+            "audio", "subwoofer", "sound",
+            // Nhạc cụ Yamaha
+            "piano", "keyboard", "guitar", "clavinova", "disklavier", "organ",
+            // TV gia dụng
+            "tv", "tivi", "television", "bravia"
+        ]
+        
+        for bad in blacklistKeywords {
+            if lower.contains(bad) {
+                return false
+            }
+        }
+        
+        // 3. TIỀN TỐ ĐỊNH DANH CHUẨN CỦA CCU XE MÁY YAMAHA
+        if lower.hasPrefix("ccu-") || lower.hasPrefix("ccu_") || lower.hasPrefix("ccu") ||
+           lower.hasPrefix("yccu_") || lower.hasPrefix("yccu-") || lower.hasPrefix("yccu") ||
+           lower.hasPrefix("ys_") || lower.hasPrefix("ys-") ||
+           lower.hasPrefix("mynmax") {
+            return true
+        }
+        
+        // 4. CÁC TÊN TƯƠNG THÍCH VỚI HỆ THỐNG Y-CONNECT CHÍNH HÃNG
+        if lower.contains("y-connect") || lower.contains("yconnect") ||
+           lower.contains("yamaha ccu") || lower.contains("yamaha-ccu") || lower.contains("yamaha_ccu") {
+            return true
+        }
+        
+        // 5. NẾU TÊN CÓ "YAMAHA", CHỈ CHẤP NHẬN KHI KÈM TÊN XE MÁY HOẶC CỤM ĐỒNG HỒ
+        if lower.contains("yamaha") {
+            let bikeModelKeywords = [
+                "nmax", "nvx", "aerox", "xmax", "tmax", "tracer", "mt-", "mt0",
+                "r15", "r3", "r7", "r1", "fazzio", "filano", "pg-1", "lexi",
+                "ccu", "cluster", "meter", "dash", "moto", "bike", "tft"
+            ]
+            for model in bikeModelKeywords {
+                if lower.contains(model) {
+                    return true
+                }
+            }
+            return false
+        }
+        
+        // 6. NẾU TÊN CÓ "GARMIN", CHỈ CHẤP NHẬN KHI LÀ MÀN HÌNH ĐỒNG HỒ XE (STREETCROSS / NAVILITE)
+        if lower.contains("garmin") {
+            let bikeClusterKeywords = ["streetcross", "navilite", "cluster", "meter", "dash", "tft", "yamaha"]
+            for kw in bikeClusterKeywords {
+                if lower.contains(kw) {
+                    return true
+                }
+            }
+            return false
+        }
+        
+        return false
+    }
+    
     @Published public var state: BikeConnectionState = .disconnected
     @Published public var discoveredBikes: [BikeDevice] = []
     @Published public var connectedBike: BikeDevice?
@@ -40,6 +118,7 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     private var ddtNotifyChar: CBCharacteristic?
     private var telemetryCharacteristic: CBCharacteristic?
     private var discoveredCharacteristics: [CBUUID: CBCharacteristic] = [:]
+    private var discoveredPeripherals: [UUID: CBPeripheral] = [:]
     
     // Quản lý kênh MFi External Accessory
     private var eaSession: EASession?
@@ -357,6 +436,7 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         }
         state = .scanning
         discoveredBikes.removeAll()
+        discoveredPeripherals.removeAll()
         log("Bắt đầu quét BLE tìm xe Yamaha...")
         
         centralManager.scanForPeripherals(withServices: nil, options: [
@@ -377,16 +457,39 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     public func connect(to device: BikeDevice) {
         stopScanning()
         state = .connecting
+        connectedBike = device
         log("Đang kết nối tới xe \(device.name)...")
         
-        let peripherals = centralManager.retrievePeripherals(withIdentifiers: [device.id])
-        if let peripheral = peripherals.first {
+        let peripheral = discoveredPeripherals[device.id] ?? centralManager.retrievePeripherals(withIdentifiers: [device.id]).first
+        if let peripheral = peripheral {
             currentPeripheral = peripheral
             peripheral.delegate = self
             centralManager.connect(peripheral, options: [
                 CBConnectPeripheralOptionNotifyOnConnectionKey: true,
                 CBConnectPeripheralOptionNotifyOnDisconnectionKey: true
             ])
+        } else {
+            log("✗ Không tìm thấy thiết bị \(device.name) trong bộ nhớ, tiếp tục quét...")
+            connectedBike = nil
+            state = .disconnected
+            startScanning()
+        }
+    }
+    
+    public func cancelPeripheralAndResumeScan(_ peripheral: CBPeripheral) {
+        centralManager.cancelPeripheralConnection(peripheral)
+        currentPeripheral = nil
+        connectedBike = nil
+        state = .disconnected
+        discoveredCharacteristics.removeAll()
+        ddtWriteChar = nil
+        ddtNotifyChar = nil
+        telemetryCharacteristic = nil
+        streetCross.reset()
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            guard let self = self, self.currentPeripheral == nil else { return }
+            self.startScanning()
         }
     }
     
@@ -409,13 +512,13 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     // MARK: - Gửi gói tin AuthenticationV2 qua kênh ghi DDT (TX)
     private func sendAuthenticationV2() {
         guard let peripheral = currentPeripheral, let writeChar = ddtWriteChar else {
-            log("Chưa có cổng ghi DDT, tự động chuyển sang Đã kết nối")
-            DispatchQueue.main.async {
-                self.state = .connected
-                self.streetCross.displaySpec.isReadyForStreaming = true
+            log("✗ Không có cổng ghi DDT trên thiết bị, ngắt kết nối.")
+            if let p = currentPeripheral {
+                cancelPeripheralAndResumeScan(p)
             }
             return
         }
+        guard state != .authenticating && state != .connected && state != .streaming else { return }
         state = .authenticating
         log("Gửi gói AuthenticationV2 lên xe qua cổng TX: \(writeChar.uuid)...")
         
@@ -426,9 +529,9 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         let writeType: CBCharacteristicWriteType = writeChar.properties.contains(.writeWithoutResponse) ? .withoutResponse : .withResponse
         peripheral.writeValue(authPacket, for: writeChar, type: writeType)
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
             guard let self = self else { return }
-            if self.state == .authenticating {
+            if self.state == .authenticating && self.currentPeripheral != nil && self.ddtWriteChar != nil {
                 self.log("✓ Hoàn tất xác thực CCU! Chuyển sang trạng thái Đã kết nối.")
                 self.state = .connected
                 self.streetCross.displaySpec.isReadyForStreaming = true
@@ -571,7 +674,11 @@ extension YamahaCCUManager: CBCentralManagerDelegate {
         let name = peripheral.name ?? (advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? ""
         guard !name.isEmpty else { return }
         
-        if name.hasPrefix("YCCU_") || name.hasPrefix("YS_") || name.contains("CCU") || name.contains("Yamaha") || name.contains("Garmin") {
+        // Lưu tham chiếu peripheral để dùng khi connect
+        discoveredPeripherals[peripheral.identifier] = peripheral
+        
+        // Kiểm tra nghiêm ngặt: Phải đúng là Yamaha CCU hoặc TFT Cluster, loại bỏ hoàn toàn Smartwatch, Loa, Tai nghe
+        if Self.isYamahaBikeCCU(name: name, advertisementData: advertisementData) {
             let bike = BikeDevice(
                 id: peripheral.identifier,
                 name: name,
@@ -581,10 +688,11 @@ extension YamahaCCUManager: CBCentralManagerDelegate {
             )
             
             if !discoveredBikes.contains(where: { $0.id == bike.id }) {
-                log("Thấy xe: \(name), RSSI: \(RSSI)")
+                log("Thấy xe Yamaha hợp lệ: \(name), RSSI: \(RSSI)")
                 discoveredBikes.append(bike)
                 
-                if connectedBike == nil {
+                // Chỉ tự động kết nối nếu hiện tại chưa kết nối và đang ở trạng thái tìm xe
+                if connectedBike == nil && (state == .scanning || state == .disconnected) {
                     connect(to: bike)
                 }
             }
@@ -592,25 +700,42 @@ extension YamahaCCUManager: CBCentralManagerDelegate {
     }
     
     public func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        log("✓ Đã kết nối GATT với \(peripheral.name ?? ""), bắt đầu quét dịch vụ...")
-        state = .connected
+        log("✓ Đã kết nối tầng liên kết với \(peripheral.name ?? ""), đang xác minh dịch vụ CCU xe...")
+        // CHÚ Ý: Giữ trạng thái .connecting, KHÔNG gán .connected cho đến khi xác thực thành công đặc tính CCU!
+        state = .connecting
         connectedBike = BikeDevice(id: peripheral.identifier, name: peripheral.name ?? "Yamaha CCU", isPaired: true)
+        discoveredCharacteristics.removeAll()
+        ddtWriteChar = nil
+        ddtNotifyChar = nil
+        telemetryCharacteristic = nil
         peripheral.discoverServices(nil)
     }
     
     public func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         log("✗ Không kết nối được BLE: \(error?.localizedDescription ?? "")")
         state = .error
+        currentPeripheral = nil
+        connectedBike = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            guard let self = self, self.currentPeripheral == nil else { return }
+            self.startScanning()
+        }
     }
     
     public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        log("Xe ngắt kết nối BLE: \(error?.localizedDescription ?? "Bình thường")")
+        log("Xe ngắt kết nối BLE: \(error?.localizedDescription ?? "Đã tắt khóa xe")")
         state = .disconnected
+        currentPeripheral = nil
         connectedBike = nil
         streetCross.reset()
+        discoveredCharacteristics.removeAll()
+        ddtWriteChar = nil
+        ddtNotifyChar = nil
+        telemetryCharacteristic = nil
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
-            self?.startScanning()
+            guard let self = self, self.currentPeripheral == nil else { return }
+            self.startScanning()
         }
     }
 }
@@ -618,10 +743,23 @@ extension YamahaCCUManager: CBCentralManagerDelegate {
 // MARK: - CBPeripheralDelegate
 extension YamahaCCUManager: CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        guard let services = peripheral.services else { return }
-        log("Đã tìm thấy \(services.count) dịch vụ trên xe")
+        guard let services = peripheral.services, !services.isEmpty else {
+            log("✗ Không tìm thấy dịch vụ nào trên \(peripheral.name ?? ""), hủy kết nối.")
+            cancelPeripheralAndResumeScan(peripheral)
+            return
+        }
+        log("Đã tìm thấy \(services.count) dịch vụ trên thiết bị \(peripheral.name ?? "")")
         for service in services {
             peripheral.discoverCharacteristics(nil, for: service)
+        }
+        
+        // Đặt timeout 4s kiểm tra: nếu sau 4s mà không phát hiện đặc tính CCU nào thì ngắt kết nối
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
+            guard let self = self, self.currentPeripheral === peripheral else { return }
+            if self.state == .connecting && self.ddtWriteChar == nil && self.ddtNotifyChar == nil && self.telemetryCharacteristic == nil {
+                self.log("✗ Quá thời gian xác minh đặc tính CCU xe máy. Ngắt kết nối để tránh nhận nhầm.")
+                self.cancelPeripheralAndResumeScan(peripheral)
+            }
         }
     }
     
@@ -636,13 +774,10 @@ extension YamahaCCUManager: CBPeripheralDelegate {
                 peripheral.setNotifyValue(true, for: char)
             }
             
-            // 1. CỔNG GHI DỮ LIỆU LÊN XE (TX)
+            // 1. CỔNG GHI DỮ LIỆU LÊN XE (TX) - Chỉ nhận đúng UUID chuẩn Yamaha CCU
             if char.uuid == Self.ddtWriteCharUUID && isWritable {
                 ddtWriteChar = char
                 log("  ✓ ĐÃ CHỌN CỔNG GHI TX: \(char.uuid)")
-            } else if ddtWriteChar == nil && isWritable {
-                ddtWriteChar = char
-                log("  ✓ CHỌN CỔNG GHI TX DỰ PHÒNG: \(char.uuid)")
             }
             
             // 2. CỔNG NHẬN DỮ LIỆU TỪ XE (RX)
@@ -658,7 +793,27 @@ extension YamahaCCUManager: CBPeripheralDelegate {
             }
         }
         
-        sendAuthenticationV2()
+        // Nếu đã tìm thấy cổng TX CCU thì tiến hành xác thực ngay
+        if ddtWriteChar != nil {
+            if state != .authenticating && state != .connected && state != .streaming {
+                sendAuthenticationV2()
+            }
+        } else {
+            // Kiểm tra xem tất cả dịch vụ đã được quét xong chưa
+            let allServicesChecked = peripheral.services?.allSatisfy { $0.characteristics != nil } ?? false
+            if allServicesChecked {
+                if ddtNotifyChar != nil || telemetryCharacteristic != nil {
+                    log("✓ Đã nhận diện CCU xe qua cổng RX/Telemetry!")
+                    DispatchQueue.main.async {
+                        self.state = .connected
+                        self.streetCross.displaySpec.isReadyForStreaming = true
+                    }
+                } else {
+                    log("✗ Thiết bị '\(peripheral.name ?? "")' không có đặc tính CCU Yamaha. Hủy kết nối.")
+                    cancelPeripheralAndResumeScan(peripheral)
+                }
+            }
+        }
     }
     
     public func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
@@ -667,9 +822,12 @@ extension YamahaCCUManager: CBPeripheralDelegate {
         } else {
             log("✓ Đã gửi dữ liệu thành công lên xe!")
         }
-        DispatchQueue.main.async {
-            self.state = .connected
-            self.streetCross.displaySpec.isReadyForStreaming = true
+        if state == .authenticating {
+            DispatchQueue.main.async {
+                self.state = .connected
+                self.streetCross.displaySpec.isReadyForStreaming = true
+                self.log("✓ Đã kết nối và xác thực thành công với xe máy!")
+            }
         }
     }
     
@@ -680,6 +838,7 @@ extension YamahaCCUManager: CBPeripheralDelegate {
             DispatchQueue.main.async {
                 self.state = .connected
                 self.streetCross.displaySpec.isReadyForStreaming = true
+                self.log("✓ Xe đã phản hồi xác thực! Chuyển sang trạng thái Đã kết nối.")
             }
         }
         
