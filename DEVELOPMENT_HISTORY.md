@@ -348,6 +348,19 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
 
 ---
 
+### 🔴 TÍNH NĂNG 18: Khắc phục Race Condition NaviLite & Sửa lỗi Byte Order Bắt tay ECU 309 (v0.5.23 Build 49)
+* **Phân tích log thực tế trên xe**:
+  1. **Lỗi ECU tự ngắt kết nối sau vài giây (`01 38 00`)**:
+     - *Dấu hiệu*: Xe gửi gói tin `01 35 03` hoặc `01 35 01`. Khoảng 5-7 giây sau, xe gửi 4 gói `01 38 00` (Command 312: ngắt kết nối/tắt khóa) và đóng BLE + MFi.
+     - *Nguyên nhân*: Mã `01 35` là Command ID 309 (Heartbeat Ping của ECU). Trong code trước đây kiểm tra theo little-endian `bytes[0] == 0x35 && bytes[1] == 0x01`, trong khi ECU xe gửi big-endian `[0x01, 0x35, sub]`. Do đó, app không gửi gói tin ACK 310 (`0x0136`) phản hồi. Sau 5s không có ACK, ECU tự động hủy phiên kết nối.
+     - *Giải pháp*: Chuẩn hóa kiểm tra cả hai thứ tự byte `(bytes[0] == 0x01 && bytes[1] == 0x35) || (bytes[0] == 0x35 && bytes[1] == 0x01)` và gửi phản hồi ngay lập tức `Data([0x36, 0x01, sub])` cho xe.
+  2. **Lỗi Race Condition khiến luồng NaviLite dừng ngay khi vừa mở EASession**:
+     - *Dấu hiệu*: Log xuất hiện `▶ Khởi động bộ nhận lệnh NaviLite liên tục với màn hình TFT...` và ngay dòng tiếp theo là `Dừng luồng lắng nghe NaviLite do phiên MFi kết thúc.`
+     - *Nguyên nhân*: Cờ `isMFiConnected = true` được cập nhật trong `DispatchQueue.main.async`, trong khi `Thread.detachNewThread` chạy `runNaviLiteHandshake()` ngay tức thì. Khi luồng nền bắt đầu chạy, `isMFiConnected` vẫn là `false`, khiến vòng lặp `while isMFiConnected && eaSession != nil` thoát ngay lập tức ở lần lặp đầu tiên.
+     - *Giải pháp*: Chuyển điều kiện vòng lặp thành `while eaSession != nil && eaInput != nil` và gán cờ `isMFiConnected = true` đồng bộ ngay trước khi khởi chạy luồng.
+
+---
+
 ## 4. QUY TRÌNH BIÊN DỊCH VÀ PHÁT HÀNH (CI/CD)
 - Dự án sử dụng GitHub Actions workflow (`.github/workflows/build-ios.yml`).
 - Mỗi khi có commit mới được push lên nhánh `main`, hệ thống tự động:

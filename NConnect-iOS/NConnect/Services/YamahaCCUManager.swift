@@ -268,6 +268,7 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         eaSession = session
         eaInput = session.inputStream
         eaOutput = session.outputStream
+        isMFiConnected = true
         
         DispatchQueue.main.async {
             self.isMFiConnected = true
@@ -329,7 +330,7 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         
         log("▶ Khởi động bộ nhận lệnh NaviLite liên tục với màn hình TFT...")
         
-        while isMFiConnected && eaSession != nil {
+        while eaSession != nil && eaInput != nil {
             do {
                 // Đọc frame tiếp theo từ xe, timeout 5s để định kỳ kiểm tra kết nối MFi
                 let f = try readNaviFrame(timeout: 5.0)
@@ -1040,15 +1041,23 @@ extension YamahaCCUManager: CBPeripheralDelegate {
         let bytes = [UInt8](data)
         guard bytes.count >= 2 else { return }
         
-        // Phản hồi Bắt tay ECU (Handshake ACK) khi xe gửi gói 309 (0x0135)
-        let packetHeader = (Int(bytes[1]) << 8) | Int(bytes[0])
-        if packetHeader == 0x0135 || (bytes.count >= 2 && bytes[0] == 0x35 && bytes[1] == 0x01) {
-            log("🤝 Bắt tay ECU: Xe gửi mã 309 (0x0135) -> Phản hồi mã 310 (0x0136)")
+        // 1. Phản hồi Bắt tay ECU (Handshake ACK) khi xe gửi gói 309 (0x0135: [0x01, 0x35, sub] hoặc [0x35, 0x01, sub])
+        if (bytes[0] == 0x01 && bytes[1] == 0x35) || (bytes[0] == 0x35 && bytes[1] == 0x01) {
+            let sub = bytes.count > 2 ? bytes[2] : 0x00
+            log("🤝 Bắt tay ECU: Xe gửi mã 309 (0x0135, sub=\(sub)) -> Phản hồi mã 310 (0x0136)")
             if let peripheral = currentPeripheral, let writeChar = ddtWriteChar {
-                let ackPayload = Data([0x36, 0x01, 0x00])
+                let ackPayload = Data([0x36, 0x01, sub])
                 let writeType: CBCharacteristicWriteType = writeChar.properties.contains(.writeWithoutResponse) ? .withoutResponse : .withResponse
                 peripheral.writeValue(ackPayload, for: writeChar, type: writeType)
             }
+            return
+        }
+        
+        // 2. Tín hiệu tắt khóa xe / ngắt kết nối từ ECU (Command 312 = 0x0138)
+        if (bytes[0] == 0x01 && bytes[1] == 0x38) || (bytes[0] == 0x38 && bytes[1] == 0x01) {
+            log("🛵 [ECU] Xe phát tín hiệu tắt khóa điện (Command 312: 0x0138)")
+            triggerParkingSaveIfAppropriate()
+            return
         }
     }
 }
