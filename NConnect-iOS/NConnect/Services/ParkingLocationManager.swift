@@ -66,15 +66,16 @@ public struct ParkedBikeLocation: Codable, Identifiable, Equatable {
     }
     
     // Khoảng cách theo mét từ vị trí hiện tại
-    public func distanceMeters(from currentLocation: CLLocationCoordinate2D?) -> Double? {
-        guard let current = currentLocation else { return nil }
+    public func distanceMeters(from currentLocation: CLLocationCoordinate2D? = nil) -> Double? {
+        let coord = currentLocation ?? NavigationEngine.shared?.currentLocation?.coordinate
+        guard let current = coord else { return nil }
         let bikeLoc = CLLocation(latitude: latitude, longitude: longitude)
         let currLoc = CLLocation(latitude: current.latitude, longitude: current.longitude)
         return bikeLoc.distance(from: currLoc)
     }
     
     // Chuỗi khoảng cách định dạng đẹp mắt (m hoặc km)
-    public func formattedDistance(from currentLocation: CLLocationCoordinate2D?) -> String {
+    public func formattedDistance(from currentLocation: CLLocationCoordinate2D? = nil) -> String {
         guard let meters = distanceMeters(from: currentLocation) else { return "--" }
         if meters < 1000 {
             return "\(Int(meters)) m"

@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import CoreBluetooth
 import ExternalAccessory
 import Combine
@@ -107,6 +108,8 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     @Published public var mfiAccessoryName: String = ""
     @Published public var mfiStatus: String = "Chưa kết nối màn hình TFT"
     @Published public var currentRoadNameOnTFT: String = "MyNMAX"
+    @Published public var phoneBatteryLevel: Int = 100
+    @Published public var isPhoneCharging: Bool = false
     public var lastSentRoadName: String = ""
     
     // Callbacks xử lý nút bấm từ cùm tay lái xe (+ / - / Zoom / Hủy dẫn đường / Menu)
@@ -1088,6 +1091,11 @@ extension YamahaCCUManager: CBPeripheralDelegate {
         let bState = UIDevice.current.batteryState
         let isCharging = (bState == .charging || bState == .full)
         let battByte = UInt8(levelPercent & 0x7F) | (isCharging ? 0x80 : 0x00)
+        
+        DispatchQueue.main.async {
+            self.phoneBatteryLevel = levelPercent
+            self.isPhoneCharging = isCharging
+        }
         
         // 1. Kênh BLE CCU: Gửi Lệnh 316 (0x013C: [0x3C, 0x01, mediaVol, callVol, battByte, signal])
         if let peripheral = currentPeripheral, let writeChar = ddtWriteChar, (state == .connected || state == .streaming) {

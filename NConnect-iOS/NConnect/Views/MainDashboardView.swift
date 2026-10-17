@@ -961,6 +961,8 @@ public struct MainDashboardView: View {
                                     navEngine.addFavoriteLocation(item)
                                 case .gas:
                                     break
+                                case .parking:
+                                    ParkingLocationManager.shared.recordParkingLocation(coordinate: item.coordinate, bikeName: ccuManager.connectedBike?.name ?? "Yamaha NMAX")
                                 }
                                 settingLocationType = nil
                             } else {
