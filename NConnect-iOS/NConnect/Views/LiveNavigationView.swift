@@ -2124,8 +2124,7 @@ public struct OSMMapView: UIViewRepresentable {
             
             // Ghim các điểm dừng trung gian (Cam - 1, 2, 3...)
             for (idx, sc) in stopCoords.enumerated() {
-                let stopTitle = idx < parent.intermediateStops.count ? parent.intermediateStops[idx].title : "Điểm dừng \(idx + 1)"
-                let annStop = RoutePointAnnotation(coordinate: sc, stopIndex: idx + 1, title: "\(idx + 1). \(stopTitle)")
+                let annStop = RoutePointAnnotation(coordinate: sc, stopIndex: idx + 1, title: "\(idx + 1). Điểm dừng \(idx + 1)")
                 routeAnnotations.append(annStop)
                 mapView.addAnnotation(annStop)
             }
