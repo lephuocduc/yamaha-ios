@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 public struct SettingsView: View {
     @ObservedObject var ccuManager: YamahaCCUManager

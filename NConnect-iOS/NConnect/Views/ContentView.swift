@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 public struct ContentView: View {
     @StateObject private var ccuManager = YamahaCCUManager()
