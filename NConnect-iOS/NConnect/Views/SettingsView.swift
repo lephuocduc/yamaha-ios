@@ -3,8 +3,19 @@ import SwiftUI
 public struct SettingsView: View {
     @ObservedObject var ccuManager: YamahaCCUManager
     
+    @AppStorage("selectedBikeModel") private var selectedBikeModel = "Yamaha XMAX 300"
+    @AppStorage("autoReconnect") private var autoReconnect = true
     @AppStorage("osmTileStyle") private var osmTileStyle = "OSM Chuẩn (Sáng)"
     @AppStorage("osrmServerUrl") private var osrmServerUrl = "https://router.project-osrm.org"
+    
+    let bikeModels = [
+        "Yamaha XMAX 300",
+        "Yamaha NMAX 155",
+        "Yamaha YZF-R9",
+        "Yamaha MT-09 / SP",
+        "Yamaha XSR900 GP",
+        "Xe hỗ trợ Garmin StreetCross khác"
+    ]
     
     let osmTileStyles = [
         "OSM Chuẩn (Sáng)",

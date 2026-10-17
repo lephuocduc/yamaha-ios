@@ -275,7 +275,6 @@ public final class TFTStreamRenderer: ObservableObject {
         ctx.translateBy(x: -bikeCanvasX, y: -bikeCanvasY)
         
         // 2. Vẽ 9 ngói OpenStreetMap (3x3 grid) xung quanh vị trí xe
-        var needsTileReload = false
         for dx in -1...1 {
             for dy in -1...1 {
                 let tx = centerTileX + dx
@@ -291,7 +290,6 @@ public final class TFTStreamRenderer: ObservableObject {
                     ctx.setStrokeColor(UIColor(white: 0.25, alpha: 0.4).cgColor)
                     ctx.stroke(destRect)
                     
-                    needsTileReload = true
                     OSMTileEngine.shared.fetchTile(x: tx, y: ty, z: zoom) { [weak self] _ in
                         DispatchQueue.main.async {
                             self?.triggerImmediateReRender()
