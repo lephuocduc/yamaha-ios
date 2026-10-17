@@ -316,11 +316,26 @@ public final class TFTStreamRenderer: ObservableObject {
             } else {
                 road = "Yamaha NMAX"
             }
-            // Luôn cập nhật tên đường lên thanh footer của màn hình TFT (kể cả khi chạy tự do không có lộ trình)
+            var etaInfo = ""
+            if nav.isNavigating && (!nav.currentInstruction.etaString.isEmpty || nav.currentInstruction.totalTimeRemainingSeconds > 0) {
+                let etaTime = nav.currentInstruction.etaString.isEmpty ? "" : nav.currentInstruction.etaString
+                let mins = max(1, Int(ceil(Double(nav.currentInstruction.totalTimeRemainingSeconds) / 60.0)))
+                let remStr = mins < 60 ? "\(mins)P" : "\(mins / 60)H\(mins % 60)P"
+                if !etaTime.isEmpty {
+                    etaInfo = "\(etaTime) (\(remStr))"
+                } else {
+                    etaInfo = remStr
+                }
+            } else if nav.currentInstruction.hasArrived {
+                etaInfo = "DEN NOI"
+            }
+            
+            // Luôn cập nhật tên đường + thông tin thời gian tới (ETA) lên thanh footer của màn hình TFT
             ccu.updateCurrentRoadNameOnTFT(
                 road,
                 distanceMeters: Double(nav.currentInstruction.distanceMeters),
-                maneuverIcon: UInt8(nav.currentInstruction.direction.rawValue)
+                maneuverIcon: UInt8(nav.currentInstruction.direction.rawValue),
+                etaText: etaInfo
             )
             
             self.renderLiveMapFrame(
@@ -864,52 +879,13 @@ public final class TFTStreamRenderer: ObservableObject {
             arrowImage.draw(in: CGRect(x: 8, y: 8, width: 46, height: 46))
         }
         
-        // Hộp hiển thị Thời gian dự kiến đến (ETA) ở góc trên bên phải thanh Header
-        let hasETA = !instruction.etaString.isEmpty || instruction.totalTimeRemainingSeconds > 0
-        let etaWidth: CGFloat = hasETA ? 104.0 : 0.0
-        
-        if hasETA {
-            let etaBoxRect = CGRect(x: size.width - etaWidth - 8, y: 5, width: etaWidth, height: 52)
-            let etaBoxPath = UIBezierPath(roundedRect: etaBoxRect, cornerRadius: 8)
-            
-            // Nền hộp ETA tối viền Cyan nổi bật
-            ctx.setFillColor(UIColor(red: 0.08, green: 0.12, blue: 0.18, alpha: 0.92).cgColor)
-            etaBoxPath.fill()
-            ctx.setStrokeColor(UIColor(red: 0.0, green: 0.85, blue: 1.0, alpha: 0.70).cgColor)
-            ctx.setLineWidth(1.2)
-            etaBoxPath.stroke()
-            
-            // Giờ đến dự kiến (Ví dụ "14:29" - Chữ bự 22pt Heavy Trắng)
-            let etaTime = instruction.etaString.isEmpty ? "--:--" : instruction.etaString
-            let etaAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 22, weight: .heavy),
-                .foregroundColor: UIColor.white
-            ]
-            let etaSize = (etaTime as NSString).size(withAttributes: etaAttrs)
-            (etaTime as NSString).draw(
-                at: CGPoint(x: etaBoxRect.midX - etaSize.width / 2.0, y: etaBoxRect.minY + 5),
-                withAttributes: etaAttrs
-            )
-            
-            // Thời gian còn lại (Ví dụ "41 phút" - 12pt Bold Cyan)
-            let remTime = instruction.remainingTimeFormatted.isEmpty ? "Đến nơi" : instruction.remainingTimeFormatted
-            let remAttrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 12, weight: .bold),
-                .foregroundColor: UIColor(red: 0.0, green: 0.90, blue: 1.0, alpha: 1.0)
-            ]
-            let remSize = (remTime as NSString).size(withAttributes: remAttrs)
-            (remTime as NSString).draw(
-                at: CGPoint(x: etaBoxRect.midX - remSize.width / 2.0, y: etaBoxRect.minY + 30),
-                withAttributes: remAttrs
-            )
-        }
-        
-        // Text hướng dẫn chính: Phóng bự chiếm hết chiều cao dải đen (36pt / 28pt), căn giữa hoàn hảo
+        // Text hướng dẫn chính: Phóng bự chiếm trọn chiều ngang dải đen (đã dời ETA xuống footer)
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineBreakMode = .byTruncatingTail
         
-        let availableTextWidth = size.width - 60 - (hasETA ? (etaWidth + 14) : 12)
-        let mainTextRect = CGRect(x: 60, y: 7, width: availableTextWidth, height: 48)
+        let textStartX: CGFloat = 62.0
+        let availableTextWidth = size.width - textStartX - 10.0 // 480 - 62 - 10 = 408pt rộng thênh thang cho tên đường dài
+        let mainTextRect = CGRect(x: textStartX, y: 7, width: availableTextWidth, height: 48)
         
         let navText = NSMutableAttributedString()
         
@@ -923,12 +899,21 @@ public final class TFTStreamRenderer: ObservableObject {
             ]
         ))
         
-        // 2. Tên đường tiếp theo (Cỡ chữ to 28pt Bold, Trắng sáng)
+        // 2. Tên đường tiếp theo (Cỡ chữ to 28pt Bold, Trắng sáng; tự động co nhẹ nếu tên quá dài)
         let roadName = instruction.nextRoadName.isEmpty ? "Đi theo lộ trình" : instruction.nextRoadName
+        let roadFontSize: CGFloat
+        if roadName.count > 28 {
+            roadFontSize = 24.0
+        } else if roadName.count > 20 {
+            roadFontSize = 26.0
+        } else {
+            roadFontSize = 28.0
+        }
+        
         navText.append(NSAttributedString(
             string: "· \(roadName)",
             attributes: [
-                .font: UIFont.systemFont(ofSize: 28, weight: .bold),
+                .font: UIFont.systemFont(ofSize: roadFontSize, weight: .bold),
                 .foregroundColor: UIColor.white,
                 .paragraphStyle: paragraphStyle
             ]

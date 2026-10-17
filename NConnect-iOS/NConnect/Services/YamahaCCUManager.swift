@@ -606,21 +606,29 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Cập nhật tên con đường xe đang chạy lên thanh footer của màn hình xe (Chuẩn Garmin svc 2, svc 3, svc 4 & svc 14)
-    public func updateCurrentRoadNameOnTFT(_ rawRoadName: String, distanceMeters: Double = 0.0, maneuverIcon: UInt8 = 0) {
-        var clean = cleanVietnameseForGarmin(rawRoadName).uppercased()
-        if clean.isEmpty {
-            clean = "YAMAHA"
+    // MARK: - Cập nhật tên con đường xe đang chạy + ETA lên thanh footer của màn hình xe (Chuẩn Garmin svc 2, svc 3, svc 4 & svc 14)
+    public func updateCurrentRoadNameOnTFT(_ rawRoadName: String, distanceMeters: Double = 0.0, maneuverIcon: UInt8 = 0, etaText: String = "") {
+        var cleanRoad = cleanVietnameseForGarmin(rawRoadName).uppercased()
+        if cleanRoad.isEmpty {
+            cleanRoad = "YAMAHA"
         }
-        lastSentRoadName = clean
+        
+        var fullFooter = cleanRoad
+        if !etaText.isEmpty && !cleanRoad.contains(" - ") {
+            let cleanEta = cleanVietnameseForGarmin(etaText).uppercased()
+            if !cleanEta.isEmpty {
+                fullFooter = "\(cleanRoad) - \(cleanEta)"
+            }
+        }
+        lastSentRoadName = fullFooter
         
         DispatchQueue.main.async {
-            self.currentRoadNameOnTFT = clean
+            self.currentRoadNameOnTFT = fullFooter
         }
         
         guard isMFiConnected && eaOutput != nil else { return }
         
-        let roadBytes = [UInt8](clean.prefix(128).utf8)
+        let roadBytes = [UInt8](fullFooter.prefix(128).utf8)
         
         // 1. GỬI SERVICE 2 (PDT 0): Kích hoạt chế độ dẫn đường trên đồng hồ xe (Active Navigation Mode: [1, 0])
         writeEAData(NaviLite.frame(6, 2, 0, [1, 0]))

@@ -170,6 +170,29 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
 
 ---
 
+### 🔴 TÍNH NĂNG 9: Dời thông tin thời gian đến (ETA) xuống Footer & Mở rộng Header toàn chiều ngang TFT
+* **Yêu cầu người dùng**:
+  - Footer màn hình xe máy đã hiển thị thành công tên con đường hiện tại (`▲ PHU THO HOA`).
+  - Dời toàn bộ thông tin giờ đến dự kiến (ETA - ví dụ `17:44` và `41 phút`) từ hộp góc phải của Header xuống tích hợp trực tiếp vào thanh Footer.
+  - Mục đích: Giải phóng hoàn toàn chiều ngang dải đen Header trên màn hình TFT (~408pt) để tên đường tiếp theo hiển thị trọn vẹn, không bị cắt bớt hoặc hiện dấu ba chấm (`...`) khi tên đường dài.
+* **Kiến trúc giải pháp chuẩn xác**:
+  1. **Tích hợp ETA vào thanh Footer của xe (`updateCurrentRoadNameOnTFT`)**:
+     - Định dạng Footer khi đang dẫn đường: `[TÊN ĐƯỜNG HIỆN TẠI] - [GIỜ ĐẾN] ([SỐ PHÚT CÒN LẠI]P)`.
+       * Ví dụ thực tế: `▲ PHU THO HOA - 17:44 (41P)` hoặc `▲ 58 DO DUC DUC - 18:25 (1H15P)`.
+     - Toàn bộ chuỗi được chuẩn hoá qua hàm `cleanVietnameseForGarmin`, chuyển sang chữ in hoa chuẩn ASCII (32-126) mà vi điều khiển màn hình xe Yamaha/Garmin hỗ trợ hoàn hảo.
+     - Khi chạy xe tự do không có lộ trình: Footer tự động quay về hiển thị tên đường hiện tại không kèm ETA (ví dụ `▲ PHU THO HOA`).
+     - Khi kết thúc chuyến đi (`stopNavigationOnTFT`): Reset sạch chuỗi để không lưu vết ETA cũ.
+  2. **Giải phóng và tối ưu Header dẫn đường trên TFT (`drawTopNavigationBanner`)**:
+     - Gỡ bỏ hộp chữ nhật ETA (`etaBoxRect`) ở góc trên bên phải.
+     - Tăng chiều rộng vùng hiển thị văn bản `availableTextWidth` từ 302pt lên **408pt** (`size.width (480) - textStartX (62) - 10`).
+     - Tự động co giãn cỡ chữ thông minh cho tên đường tiếp theo:
+       * Tên đường dài > 28 ký tự: Cỡ chữ 24pt Bold.
+       * Tên đường dài > 20 ký tự: Cỡ chữ 26pt Bold.
+       * Tên đường thông thường: Cỡ chữ 28pt Bold.
+     - Khoảng cách rẽ (`36pt Heavy Neon Green`) và tên đường (`Bold White`) luôn được căn giữa theo chiều cao dải đen (62pt), hiển thị cực kỳ sang trọng, rõ ràng và chống chói tuyệt đối dưới trời nắng gắt.
+
+---
+
 ## 4. QUY TRÌNH BIÊN DỊCH VÀ PHÁT HÀNH (CI/CD)
 - Dự án sử dụng GitHub Actions workflow (`.github/workflows/build-ios.yml`).
 - Mỗi khi có commit mới được push lên nhánh `main`, hệ thống tự động:

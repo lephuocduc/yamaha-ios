@@ -64,18 +64,36 @@ public struct ContentView: View {
             streamRenderer.ccuManager = ccuManager
             let initRoad = navEngine.currentRoadName.isEmpty ? navEngine.currentInstruction.nextRoadName : navEngine.currentRoadName
             if !initRoad.isEmpty {
+                var initEta = ""
+                if navEngine.isNavigating && (!navEngine.currentInstruction.etaString.isEmpty || navEngine.currentInstruction.totalTimeRemainingSeconds > 0) {
+                    let etaTime = navEngine.currentInstruction.etaString.isEmpty ? "" : navEngine.currentInstruction.etaString
+                    let mins = max(1, Int(ceil(Double(navEngine.currentInstruction.totalTimeRemainingSeconds) / 60.0)))
+                    let remStr = mins < 60 ? "\(mins)P" : "\(mins / 60)H\(mins % 60)P"
+                    initEta = !etaTime.isEmpty ? "\(etaTime) (\(remStr))" : remStr
+                }
                 ccuManager.updateCurrentRoadNameOnTFT(
                     initRoad,
                     distanceMeters: Double(navEngine.currentInstruction.distanceMeters),
-                    maneuverIcon: UInt8(navEngine.currentInstruction.direction.rawValue)
+                    maneuverIcon: UInt8(navEngine.currentInstruction.direction.rawValue),
+                    etaText: initEta
                 )
             }
             navEngine.onRoadNameChanged = { [weak ccuManager, weak navEngine] road in
                 guard let nav = navEngine else { return }
+                var etaInfo = ""
+                if nav.isNavigating && (!nav.currentInstruction.etaString.isEmpty || nav.currentInstruction.totalTimeRemainingSeconds > 0) {
+                    let etaTime = nav.currentInstruction.etaString.isEmpty ? "" : nav.currentInstruction.etaString
+                    let mins = max(1, Int(ceil(Double(nav.currentInstruction.totalTimeRemainingSeconds) / 60.0)))
+                    let remStr = mins < 60 ? "\(mins)P" : "\(mins / 60)H\(mins % 60)P"
+                    etaInfo = !etaTime.isEmpty ? "\(etaTime) (\(remStr))" : remStr
+                } else if nav.currentInstruction.hasArrived {
+                    etaInfo = "DEN NOI"
+                }
                 ccuManager?.updateCurrentRoadNameOnTFT(
                     road,
                     distanceMeters: Double(nav.currentInstruction.distanceMeters),
-                    maneuverIcon: UInt8(nav.currentInstruction.direction.rawValue)
+                    maneuverIcon: UInt8(nav.currentInstruction.direction.rawValue),
+                    etaText: etaInfo
                 )
             }
             navEngine.onNavigationStopped = { [weak ccuManager] in
