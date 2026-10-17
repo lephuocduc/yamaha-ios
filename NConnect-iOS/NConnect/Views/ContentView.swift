@@ -48,6 +48,9 @@ public struct ContentView: View {
             ccuManager.onZoomOut = { [weak streamRenderer] in
                 streamRenderer?.zoomOut()
             }
+            ccuManager.onStopRoute = { [weak navEngine] in
+                navEngine?.stopNavigation()
+            }
             ccuManager.updateCurrentRoadNameOnTFT(navEngine.currentRoadName)
             navEngine.onRoadNameChanged = { [weak ccuManager] road in
                 ccuManager?.updateCurrentRoadNameOnTFT(road)

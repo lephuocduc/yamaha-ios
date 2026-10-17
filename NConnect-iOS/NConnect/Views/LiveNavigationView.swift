@@ -99,6 +99,47 @@ public struct LiveNavigationView: View {
             .ignoresSafeArea(edges: .top)
             
             VStack {
+                // Thông báo khi xe đã đến nơi đích
+                if let arrivalMsg = navEngine.arrivalMessage {
+                    HStack(spacing: 12) {
+                        Image(systemName: "flag.checkered.circle.fill")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundColor(.green)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("ĐÃ ĐẾN NƠI!")
+                                .font(.system(size: 15, weight: .heavy))
+                                .foregroundColor(.green)
+                            Text(arrivalMsg)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(.white)
+                                .lineLimit(2)
+                        }
+                        
+                        Spacer()
+                        
+                        Button(action: {
+                            withAnimation {
+                                navEngine.arrivalMessage = nil
+                            }
+                        }) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(.green)
+                        }
+                    }
+                    .padding(12)
+                    .background(Color(red: 0.04, green: 0.16, blue: 0.08).opacity(0.96))
+                    .cornerRadius(14)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color.green, lineWidth: 1.5)
+                    )
+                    .shadow(color: Color.green.opacity(0.4), radius: 8)
+                    .padding(.horizontal)
+                    .padding(.top, isLandscape ? 4 : 8)
+                }
+                
                 // 2. Phía trên: HUD dẫn đường Turn-by-Turn HOẶC Hộp chọn lộ trình Điểm A & Điểm B (Google Maps style)
                 if navEngine.isNavigating {
                     navigationHUD
@@ -436,8 +477,8 @@ public struct LiveNavigationView: View {
                 }
             }
             
-            // Các nút hành động: Dẫn đường tới đây & Đặt làm điểm xuất phát
-            HStack(spacing: 10) {
+            // Các nút hành động: Dẫn đường tới đây, Đặt làm điểm A, Lưu yêu thích
+            VStack(spacing: 8) {
                 // Nút DẪN ĐƯỜNG ĐẾN ĐÂY (Nổi bật, to, xanh lá)
                 Button(action: {
                     navigateCurrentToDroppedPin()
@@ -456,21 +497,45 @@ public struct LiveNavigationView: View {
                     .shadow(color: Color.green.opacity(0.4), radius: 4, y: 2)
                 }
                 
-                // Nút ĐẶT LÀM ĐIỂM XUẤT PHÁT (Điểm A)
-                Button(action: {
-                    setDroppedPinAsPointA()
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "location.north.circle.fill")
-                            .font(.system(size: 14))
-                        Text("Điểm A")
-                            .font(.system(size: 13, weight: .semibold))
+                HStack(spacing: 10) {
+                    // Nút ĐẶT LÀM ĐIỂM XUẤT PHÁT (Điểm A)
+                    Button(action: {
+                        setDroppedPinAsPointA()
+                    }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "location.north.circle.fill")
+                                .font(.system(size: 14))
+                            Text("Điểm xuất phát A")
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(Color(white: 0.22))
+                        .cornerRadius(10)
                     }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .background(Color(white: 0.22))
-                    .cornerRadius(12)
+                    
+                    // Nút LƯU VÀO YÊU THÍCH (⭐)
+                    Button(action: {
+                        toggleFavoriteDroppedPin()
+                    }) {
+                        HStack(spacing: 5) {
+                            Image(systemName: isDroppedPinFavorite ? "star.fill" : "star")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(isDroppedPinFavorite ? .yellow : .white)
+                            Text(isDroppedPinFavorite ? "Đã lưu" : "Lưu yêu thích")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(isDroppedPinFavorite ? .yellow : .white)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(isDroppedPinFavorite ? Color.yellow.opacity(0.2) : Color(white: 0.22))
+                        .cornerRadius(10)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(isDroppedPinFavorite ? Color.yellow.opacity(0.7) : Color.clear, lineWidth: 1)
+                        )
+                    }
                 }
             }
         }
@@ -600,41 +665,64 @@ public struct LiveNavigationView: View {
                 }
             } else {
                 Image(systemName: navEngine.currentInstruction.direction.iconName)
-                    .font(.system(size: 30, weight: .heavy))
+                    .font(.system(size: 32, weight: .heavy))
                     .foregroundColor(.green)
                 
-                HStack(spacing: 8) {
-                    Text(navEngine.currentInstruction.formattedDistance)
-                        .font(.system(size: 22, weight: .heavy))
-                        .foregroundColor(.green)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 8) {
+                        Text(navEngine.currentInstruction.formattedDistance)
+                            .font(.system(size: 24, weight: .heavy))
+                            .foregroundColor(.green)
+                        
+                        Text("•")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(.gray)
+                        
+                        Text(navEngine.currentInstruction.nextRoadName.isEmpty ? "Đang đi theo lộ trình" : navEngine.currentInstruction.nextRoadName)
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                    }
                     
-                    Text("•")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.gray)
-                    
-                    Text(navEngine.currentInstruction.nextRoadName.isEmpty ? "Đang đi theo lộ trình" : navEngine.currentInstruction.nextRoadName)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
+                    if !navEngine.currentInstruction.detailedInstruction.isEmpty {
+                        Text(navEngine.currentInstruction.detailedInstruction)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.75))
+                            .lineLimit(1)
+                    }
                 }
             }
             
             Spacer()
             
-            Button(action: {
-                clearRoute()
-            }) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title2)
-                    .foregroundColor(.red.opacity(0.9))
+            // Cụm thông tin ETA và nút dừng lộ trình
+            VStack(alignment: .trailing, spacing: 4) {
+                Button(action: {
+                    clearRoute()
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(.red.opacity(0.9))
+                }
+                
+                if !navEngine.currentInstruction.etaString.isEmpty {
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text(navEngine.currentInstruction.etaString)
+                            .font(.system(size: 14, weight: .heavy))
+                            .foregroundColor(.white)
+                        Text(navEngine.currentInstruction.remainingTimeFormatted)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.cyan)
+                    }
+                }
             }
         }
         .padding(14)
-        .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.95))
+        .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.96))
         .cornerRadius(16)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(navEngine.isRerouting ? Color.yellow.opacity(0.8) : Color.clear, lineWidth: 1.5)
+                .stroke(navEngine.isRerouting ? Color.yellow.opacity(0.8) : Color.cyan.opacity(0.3), lineWidth: 1.5)
         )
         .shadow(radius: 8)
     }
@@ -857,7 +945,7 @@ public struct LiveNavigationView: View {
     
     private func triggerRouteCalculation() {
         guard let startCoord = effectivePointACoordinate, let dest = pointB else { return }
-        navEngine.calculateRoute(from: startCoord, to: dest.coordinate, autoStart: false)
+        navEngine.calculateRoute(from: startCoord, to: dest.coordinate, destinationTitle: dest.title, autoStart: false)
     }
     
     private func swapPoints() {
@@ -882,8 +970,9 @@ public struct LiveNavigationView: View {
     
     private func startNavigation() {
         if pointA != nil, let curLoc = navEngine.currentLocation, let dest = pointB {
+            let destTitle = dest.title
             pointA = nil
-            navEngine.calculateRoute(from: curLoc.coordinate, to: dest.coordinate, autoStart: true)
+            navEngine.calculateRoute(from: curLoc.coordinate, to: dest.coordinate, destinationTitle: destTitle, autoStart: true)
         } else {
             navEngine.startActiveNavigation()
         }
@@ -941,6 +1030,34 @@ public struct LiveNavigationView: View {
         withAnimation(.easeInOut(duration: 0.2)) {
             droppedPinCoordinate = nil
             showDroppedPinCard = false
+        }
+    }
+    
+    private var isDroppedPinFavorite: Bool {
+        guard let coord = droppedPinCoordinate else { return false }
+        return navEngine.favoriteLocations.contains { fav in
+            abs(fav.latitude - coord.latitude) < 0.0001 && abs(fav.longitude - coord.longitude) < 0.0001
+        }
+    }
+    
+    private func toggleFavoriteDroppedPin() {
+        guard let coord = droppedPinCoordinate else { return }
+        let title = droppedPinTitle.isEmpty ? "Điểm đã ghim" : droppedPinTitle
+        let subtitle = droppedPinSubtitle
+        
+        if let existing = navEngine.favoriteLocations.first(where: {
+            abs($0.latitude - coord.latitude) < 0.0001 && abs($0.longitude - coord.longitude) < 0.0001
+        }) {
+            navEngine.removeFavoriteLocation(id: existing.id)
+        } else {
+            let newFav = SavedLocation(
+                title: title,
+                subtitle: subtitle,
+                latitude: coord.latitude,
+                longitude: coord.longitude,
+                type: .favorite
+            )
+            navEngine.addFavoriteLocation(newFav)
         }
     }
     
@@ -1262,9 +1379,9 @@ public struct OSMMapView: UIViewRepresentable {
             }
             if let polyline = overlay as? MKPolyline {
                 let renderer = MKPolylineRenderer(polyline: polyline)
-                // Màu xanh dương Google Maps sáng, đậm nét, viền bo tròn
-                renderer.strokeColor = UIColor(red: 0.10, green: 0.52, blue: 1.0, alpha: 0.95)
-                renderer.lineWidth = 7.0
+                // Đường polyline màu xanh neon siêu tương phản, nét dày 11.0pt dễ nhìn khi chạy xe máy ngoài trời
+                renderer.strokeColor = UIColor(red: 0.0, green: 0.70, blue: 1.0, alpha: 0.98)
+                renderer.lineWidth = 11.0
                 renderer.lineCap = .round
                 renderer.lineJoin = .round
                 return renderer

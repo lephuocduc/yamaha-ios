@@ -454,7 +454,7 @@ public final class TFTStreamRenderer: ObservableObject {
         }
     }
     
-    // MARK: - Vẽ tuyến đường lộ trình trên mặt phẳng ngói OpenStreetMap
+    // MARK: - Vẽ tuyến đường lộ trình trên mặt phẳng ngói OpenStreetMap (Đậm nét, tương phản cao, dễ nhìn ngoài trời nắng)
     private func drawRoutePolyline(_ route: OSMRoute, in ctx: CGContext, zoom: Int, originX: Double, originY: Double) {
         let n = pow(2.0, Double(zoom))
         let path = UIBezierPath()
@@ -479,15 +479,21 @@ public final class TFTStreamRenderer: ObservableObject {
         }
         
         if hasStarted {
-            // Lớp viền phát sáng màu xanh Yamaha Neon
-            ctx.setStrokeColor(UIColor(red: 0.0, green: 0.75, blue: 1.0, alpha: 0.9).cgColor)
-            ctx.setLineWidth(8.0)
             ctx.setLineCap(.round)
             ctx.setLineJoin(.round)
+            
+            // Lớp 1: Viền đen tuyền chống chói, tạo độ nổi khối tối đa ngoài trời nắng
+            ctx.setStrokeColor(UIColor(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.95).cgColor)
+            ctx.setLineWidth(16.0)
             path.stroke()
             
-            // Lớp lõi màu trắng tinh tế
-            ctx.setStrokeColor(UIColor.white.withAlphaComponent(0.95).cgColor)
+            // Lớp 2: Thân lộ trình màu xanh Yamaha Racing Neon siêu sáng
+            ctx.setStrokeColor(UIColor(red: 0.0, green: 0.82, blue: 1.0, alpha: 1.0).cgColor)
+            ctx.setLineWidth(10.5)
+            path.stroke()
+            
+            // Lớp 3: Lõi trắng phát quang trung tâm
+            ctx.setStrokeColor(UIColor.white.cgColor)
             ctx.setLineWidth(3.5)
             path.stroke()
         }
@@ -504,19 +510,19 @@ public final class TFTStreamRenderer: ObservableObject {
         }
         
         // Vòng tròn hào quang phát sáng
-        ctx.setFillColor(UIColor(red: 0.0, green: 0.6, blue: 1.0, alpha: 0.25).cgColor)
-        ctx.fillEllipse(in: CGRect(x: -20, y: -20, width: 40, height: 40))
+        ctx.setFillColor(UIColor(red: 0.0, green: 0.6, blue: 1.0, alpha: 0.30).cgColor)
+        ctx.fillEllipse(in: CGRect(x: -22, y: -22, width: 44, height: 44))
         
         // Vòng tròn viền xe
-        ctx.setFillColor(UIColor(red: 0.0, green: 0.8, blue: 1.0, alpha: 0.85).cgColor)
-        ctx.fillEllipse(in: CGRect(x: -10, y: -10, width: 20, height: 20))
+        ctx.setFillColor(UIColor(red: 0.0, green: 0.85, blue: 1.0, alpha: 0.90).cgColor)
+        ctx.fillEllipse(in: CGRect(x: -11, y: -11, width: 22, height: 22))
         
         // Mũi tên định hướng xe máy luôn chỉ hướng tiến lên
         let arrow = UIBezierPath()
-        arrow.move(to: CGPoint(x: 0, y: -14))
-        arrow.addLine(to: CGPoint(x: 7, y: 8))
-        arrow.addLine(to: CGPoint(x: 0, y: 4))
-        arrow.addLine(to: CGPoint(x: -7, y: 8))
+        arrow.move(to: CGPoint(x: 0, y: -15))
+        arrow.addLine(to: CGPoint(x: 8, y: 9))
+        arrow.addLine(to: CGPoint(x: 0, y: 4.5))
+        arrow.addLine(to: CGPoint(x: -8, y: 9))
         arrow.close()
         
         ctx.setFillColor(UIColor.white.cgColor)
@@ -533,18 +539,18 @@ public final class TFTStreamRenderer: ObservableObject {
         ctx.translateBy(x: compassCenter.x, y: compassCenter.y)
         
         // Vòng tròn nền
-        ctx.setFillColor(UIColor(white: 0.1, alpha: 0.85).cgColor)
-        ctx.fillEllipse(in: CGRect(x: -13, y: -13, width: 26, height: 26))
+        ctx.setFillColor(UIColor(white: 0.08, alpha: 0.90).cgColor)
+        ctx.fillEllipse(in: CGRect(x: -14, y: -14, width: 28, height: 28))
         
-        ctx.setStrokeColor(UIColor(white: 0.35, alpha: 0.8).cgColor)
-        ctx.setLineWidth(1.0)
-        ctx.strokeEllipse(in: CGRect(x: -13, y: -13, width: 26, height: 26))
+        ctx.setStrokeColor(UIColor(white: 0.45, alpha: 0.85).cgColor)
+        ctx.setLineWidth(1.2)
+        ctx.strokeEllipse(in: CGRect(x: -14, y: -14, width: 28, height: 28))
         
         if isNorthUp {
             // Khi ở chế độ North-Up: Chữ N đỏ đậm hướng lên trên
             let nText = "N" as NSString
             let attrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 11, weight: .heavy),
+                .font: UIFont.systemFont(ofSize: 12, weight: .heavy),
                 .foregroundColor: UIColor.systemRed
             ]
             let strSize = nText.size(withAttributes: attrs)
@@ -556,99 +562,152 @@ public final class TFTStreamRenderer: ObservableObject {
             
             // Mũi tên đỏ chỉ Bắc
             let redPath = UIBezierPath()
-            redPath.move(to: CGPoint(x: 0, y: -9))
-            redPath.addLine(to: CGPoint(x: 3.5, y: 0))
-            redPath.addLine(to: CGPoint(x: -3.5, y: 0))
+            redPath.move(to: CGPoint(x: 0, y: -10))
+            redPath.addLine(to: CGPoint(x: 4.0, y: 0))
+            redPath.addLine(to: CGPoint(x: -4.0, y: 0))
             redPath.close()
             ctx.setFillColor(UIColor.systemRed.cgColor)
             redPath.fill()
             
             // Mũi tên trắng chỉ Nam
             let whitePath = UIBezierPath()
-            whitePath.move(to: CGPoint(x: 0, y: 9))
-            whitePath.addLine(to: CGPoint(x: 3.5, y: 0))
-            whitePath.addLine(to: CGPoint(x: -3.5, y: 0))
+            whitePath.move(to: CGPoint(x: 0, y: 10))
+            whitePath.addLine(to: CGPoint(x: 4.0, y: 0))
+            whitePath.addLine(to: CGPoint(x: -4.0, y: 0))
             whitePath.close()
-            ctx.setFillColor(UIColor(white: 0.85, alpha: 1.0).cgColor)
+            ctx.setFillColor(UIColor(white: 0.90, alpha: 1.0).cgColor)
             whitePath.fill()
         }
         
         ctx.restoreGState()
     }
     
-    // MARK: - Banner thông tin dẫn đường Turn-by-Turn phía trên màn hình TFT
+    // MARK: - Banner thông tin dẫn đường Turn-by-Turn phía trên màn hình TFT (Chữ bự, Tương phản cao, ETA góc trên phải)
     private func drawTopNavigationBanner(in ctx: CGContext, size: CGSize, instruction: NavigationInstruction, isRerouting: Bool = false) {
-        guard instruction.isNavigating || isRerouting else { return }
+        guard instruction.isNavigating || isRerouting || instruction.hasArrived else { return }
         
-        let bannerRect = CGRect(x: 10, y: 6, width: size.width - 20, height: 46)
-        let bannerPath = UIBezierPath(roundedRect: bannerRect, cornerRadius: 8)
+        let bannerRect = CGRect(x: 8, y: 6, width: size.width - 16, height: 52)
+        let bannerPath = UIBezierPath(roundedRect: bannerRect, cornerRadius: 10)
         
+        // 1. Khi đang tự động vẽ lại lộ trình
         if isRerouting {
-            ctx.setFillColor(UIColor(red: 0.16, green: 0.12, blue: 0.04, alpha: 0.94).cgColor)
+            ctx.setFillColor(UIColor(red: 0.16, green: 0.12, blue: 0.04, alpha: 0.95).cgColor)
             bannerPath.fill()
             ctx.setStrokeColor(UIColor.systemYellow.cgColor)
-            ctx.setLineWidth(1.8)
+            ctx.setLineWidth(2.0)
             bannerPath.stroke()
             
-            let text = "⚠️ ĐANG TÍNH LẠI LỘ TRÌNH..."
+            let text = "⚠️ ĐANG TÍNH LẠI LỘ TRÌNH MỚI..."
             let attrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 18, weight: .heavy),
+                .font: UIFont.systemFont(ofSize: 20, weight: .heavy),
                 .foregroundColor: UIColor.systemYellow
             ]
-            text.draw(at: CGPoint(x: 20, y: 12), withAttributes: attrs)
+            text.draw(at: CGPoint(x: 20, y: 16), withAttributes: attrs)
             return
         }
         
-        ctx.setFillColor(UIColor(white: 0.08, alpha: 0.92).cgColor)
-        bannerPath.fill()
-        
-        ctx.setStrokeColor(UIColor(red: 0.1, green: 0.85, blue: 0.4, alpha: 0.8).cgColor)
-        ctx.setLineWidth(1.5)
-        bannerPath.stroke()
-        
-        // Mũi tên chỉ hướng rẽ
-        let arrowSymbol = instruction.direction.iconName
-        if let arrowImage = UIImage(systemName: arrowSymbol)?.withTintColor(UIColor(red: 0.1, green: 0.95, blue: 0.4, alpha: 1.0), renderingMode: .alwaysOriginal) {
-            arrowImage.draw(in: CGRect(x: 16, y: 9, width: 28, height: 28))
+        // 2. Khi đã đến điểm đích
+        if instruction.hasArrived {
+            ctx.setFillColor(UIColor(red: 0.04, green: 0.18, blue: 0.08, alpha: 0.96).cgColor)
+            bannerPath.fill()
+            ctx.setStrokeColor(UIColor(red: 0.0, green: 1.0, blue: 0.45, alpha: 0.95).cgColor)
+            ctx.setLineWidth(2.0)
+            bannerPath.stroke()
+            
+            let destText = instruction.destinationName.isEmpty ? "ĐIỂM ĐẾN" : instruction.destinationName
+            let text = "🎯 ĐÃ ĐẾN NƠI: \(destText)"
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 20, weight: .heavy),
+                .foregroundColor: UIColor(red: 0.0, green: 1.0, blue: 0.45, alpha: 1.0)
+            ]
+            text.draw(at: CGPoint(x: 20, y: 16), withAttributes: attrs)
+            return
         }
         
+        // 3. Khung nền đen sâu, chống chói ngoài trời với viền xanh neon nổi bật
+        ctx.setFillColor(UIColor(red: 0.05, green: 0.07, blue: 0.10, alpha: 0.95).cgColor)
+        bannerPath.fill()
+        
+        ctx.setStrokeColor(UIColor(red: 0.0, green: 0.90, blue: 0.45, alpha: 0.85).cgColor)
+        ctx.setLineWidth(1.8)
+        bannerPath.stroke()
+        
+        // Mũi tên chỉ hướng rẽ (Kích thước lớn 34x34 để nhìn rõ từ xa)
+        let arrowSymbol = instruction.direction.iconName
+        if let arrowImage = UIImage(systemName: arrowSymbol)?.withTintColor(UIColor(red: 0.0, green: 1.0, blue: 0.45, alpha: 1.0), renderingMode: .alwaysOriginal) {
+            arrowImage.draw(in: CGRect(x: 14, y: 15, width: 34, height: 34))
+        }
+        
+        // Hộp hiển thị Thời gian dự kiến đến (ETA) ở góc trên bên phải thanh Header
+        let hasETA = !instruction.etaString.isEmpty || instruction.totalTimeRemainingSeconds > 0
+        let etaWidth: CGFloat = hasETA ? 90.0 : 0.0
+        
+        if hasETA {
+            let etaBoxRect = CGRect(x: size.width - 8 - etaWidth - 4, y: 10, width: etaWidth, height: 44)
+            let etaBoxPath = UIBezierPath(roundedRect: etaBoxRect, cornerRadius: 8)
+            
+            // Nền hộp ETA hơi sáng hơn để tách biệt
+            ctx.setFillColor(UIColor(red: 0.10, green: 0.14, blue: 0.18, alpha: 0.90).cgColor)
+            etaBoxPath.fill()
+            ctx.setStrokeColor(UIColor(red: 0.0, green: 0.80, blue: 1.0, alpha: 0.6).cgColor)
+            ctx.setLineWidth(1.0)
+            etaBoxPath.stroke()
+            
+            // Giờ đến dự kiến (Ví dụ "12:45")
+            let etaTime = instruction.etaString.isEmpty ? "--:--" : instruction.etaString
+            let etaAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 18, weight: .heavy),
+                .foregroundColor: UIColor.white
+            ]
+            let etaSize = (etaTime as NSString).size(withAttributes: etaAttrs)
+            (etaTime as NSString).draw(
+                at: CGPoint(x: etaBoxRect.midX - etaSize.width / 2.0, y: etaBoxRect.minY + 4),
+                withAttributes: etaAttrs
+            )
+            
+            // Thời gian còn lại (Ví dụ "15 ph")
+            let remTime = instruction.remainingTimeFormatted.isEmpty ? "Đến" : instruction.remainingTimeFormatted
+            let remAttrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 11, weight: .bold),
+                .foregroundColor: UIColor(red: 0.0, green: 0.90, blue: 1.0, alpha: 1.0)
+            ]
+            let remSize = (remTime as NSString).size(withAttributes: remAttrs)
+            (remTime as NSString).draw(
+                at: CGPoint(x: etaBoxRect.midX - remSize.width / 2.0, y: etaBoxRect.minY + 24),
+                withAttributes: remAttrs
+            )
+        }
+        
+        // Text hướng dẫn chính: Khoảng cách bự (26pt) + Tên đường bự (20pt)
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineBreakMode = .byTruncatingTail
         
+        let availableTextWidth = size.width - 16 - 54 - (hasETA ? (etaWidth + 12) : 10)
+        let textRect = CGRect(x: 54, y: 10, width: availableTextWidth, height: 44)
+        
         let navText = NSMutableAttributedString()
         
-        // 1. Khoảng cách còn lại (ví dụ 45m, 1.2km)
+        // 1. Khoảng cách còn lại tới ngã rẽ (Cỡ chữ to 26pt, Xanh Neon)
         navText.append(NSAttributedString(
             string: instruction.formattedDistance + " ",
             attributes: [
-                .font: UIFont.systemFont(ofSize: 22, weight: .heavy),
-                .foregroundColor: UIColor(red: 0.1, green: 0.95, blue: 0.4, alpha: 1.0),
+                .font: UIFont.systemFont(ofSize: 26, weight: .heavy),
+                .foregroundColor: UIColor(red: 0.0, green: 1.0, blue: 0.45, alpha: 1.0),
                 .paragraphStyle: paragraphStyle
             ]
         ))
         
-        // 2. Ký tự phân cách
+        // 2. Tên đường tiếp theo / Hướng rẽ chi tiết (Cỡ chữ to 20pt, Trắng sáng)
+        let roadName = instruction.nextRoadName.isEmpty ? "Đi theo lộ trình" : instruction.nextRoadName
         navText.append(NSAttributedString(
-            string: "• ",
+            string: "• \(roadName)",
             attributes: [
-                .font: UIFont.systemFont(ofSize: 18, weight: .bold),
-                .foregroundColor: UIColor(white: 0.6, alpha: 1.0),
-                .paragraphStyle: paragraphStyle
-            ]
-        ))
-        
-        // 3. Tên đường tiếp theo
-        let roadName = instruction.nextRoadName.isEmpty ? "Đang đi theo lộ trình OSM" : instruction.nextRoadName
-        navText.append(NSAttributedString(
-            string: roadName,
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 19, weight: .bold),
+                .font: UIFont.systemFont(ofSize: 20, weight: .bold),
                 .foregroundColor: UIColor.white,
                 .paragraphStyle: paragraphStyle
             ]
         ))
         
-        let textRect = CGRect(x: 52, y: 9, width: size.width - 66, height: 32)
         navText.draw(in: textRect)
     }
     

@@ -140,11 +140,25 @@ public struct NavigationInstruction {
     public var totalTimeRemainingSeconds: Int = 0
     public var isNavigating: Bool = false
     
+    public var etaString: String = "" // Ví dụ: "12:45"
+    public var remainingTimeFormatted: String = "" // Ví dụ: "18 phút" hoặc "1h 25p"
+    public var detailedInstruction: String = "" // Ví dụ: "Rẽ phải vào đường Lê Lợi"
+    public var destinationName: String = ""
+    public var hasArrived: Bool = false
+    
     public var formattedDistance: String {
         if distanceMeters < 1000 {
             return "\(distanceMeters) m"
         } else {
             return String(format: "%.1f km", Double(distanceMeters) / 1000.0)
+        }
+    }
+    
+    public var formattedRemainingDistance: String {
+        if totalDistanceRemainingMeters < 1000 {
+            return "\(totalDistanceRemainingMeters) m"
+        } else {
+            return String(format: "%.1f km", Double(totalDistanceRemainingMeters) / 1000.0)
         }
     }
     

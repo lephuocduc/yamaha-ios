@@ -108,9 +108,10 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     @Published public var currentRoadNameOnTFT: String = "MyNMAX"
     public var lastSentRoadName: String = ""
     
-    // Callbacks xử lý nút bấm từ cùm tay lái xe (+ / - / Zoom)
+    // Callbacks xử lý nút bấm từ cùm tay lái xe (+ / - / Zoom / Hủy dẫn đường)
     public var onZoomIn: (() -> Void)?
     public var onZoomOut: (() -> Void)?
+    public var onStopRoute: (() -> Void)?
     
     private var centralManager: CBCentralManager!
     private var currentPeripheral: CBPeripheral?
@@ -137,6 +138,18 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     
     public override init() {
         super.init()
+        streetCross.onHandlebarButtonReceived = { [weak self] btn in
+            switch btn {
+            case .zoomIn:
+                DispatchQueue.main.async { self?.onZoomIn?() }
+            case .zoomOut:
+                DispatchQueue.main.async { self?.onZoomOut?() }
+            case .stopRoute:
+                DispatchQueue.main.async { self?.onStopRoute?() }
+            default:
+                break
+            }
+        }
         centralManager = CBCentralManager(delegate: self, queue: .main)
         setupExternalAccessory()
     }
@@ -310,10 +323,10 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     log("✓ Mã CCU xe: \(ccuPart) → Gửi phản hồi echo svc 84 + setup burst")
                     writeEAData(NaviLite.frame(6, 84, 1, NaviLite.secDataAckPayload(f.payload)))
                     
-                    // Setup burst cấu hình hiển thị ban đầu chuẩn Garmin StreetCross
+                    // Setup burst cấu hình hiển thị ban đầu chuẩn Garmin StreetCross (Lệnh 14 sub 0x1A)
                     let currentRoad = !self.lastSentRoadName.isEmpty ? self.lastSentRoadName : "MyNMAX"
-                    let roadBytes = [UInt8](currentRoad.prefix(32).utf8)
-                    let roadPayload: [UInt8] = [0x07, 0x19, UInt8(roadBytes.count & 0xff), 0x00] + roadBytes
+                    let roadBytes = [UInt8](currentRoad.prefix(64).utf8)
+                    let roadPayload: [UInt8] = [0x07, 0x1A, UInt8(roadBytes.count & 0xff), 0x00] + roadBytes
                     
                     let setup: [(UInt8, UInt8, [UInt8])] = [
                         (2, 0, [0, 0]),
@@ -349,16 +362,22 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     log("Menu xe: Tạm dừng nhận hình (56) → Trả 20")
                     writeEAData(NaviLite.frame(6, 20, 0, [0, 0]))
                     
-                case 53, 57:
-                    log("Phím cùm xe: Phóng to (+) / Zoom In")
+                case 51, 53, 57:
+                    log("Phím cùm xe: Phóng to (+) / Zoom In (mã svc \(f.svc))")
                     DispatchQueue.main.async {
                         self.onZoomIn?()
                     }
                     
-                case 54, 58:
-                    log("Phím cùm xe: Thu nhỏ (-) / Zoom Out")
+                case 52, 54, 58:
+                    log("Phím cùm xe: Thu nhỏ (-) / Zoom Out (mã svc \(f.svc))")
                     DispatchQueue.main.async {
                         self.onZoomOut?()
+                    }
+                    
+                case 49:
+                    log("Phím cùm xe: Dừng lộ trình dẫn đường (49)")
+                    DispatchQueue.main.async {
+                        self.onStopRoute?()
                     }
                     
                 default:
@@ -551,7 +570,7 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Cập nhật tên con đường xe đang chạy lên thanh footer của màn hình xe (Garmin svc 14)
+    // MARK: - Cập nhật tên con đường xe đang chạy lên thanh footer của màn hình xe (Garmin svc 14 sub 0x1A)
     public func updateCurrentRoadNameOnTFT(_ rawRoadName: String) {
         let clean = cleanVietnameseForGarmin(rawRoadName)
         guard !clean.isEmpty && clean != lastSentRoadName else { return }
@@ -563,9 +582,9 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         
         guard isMFiConnected && eaOutput != nil else { return }
         
-        let roadBytes = [UInt8](clean.prefix(32).utf8)
+        let roadBytes = [UInt8](clean.prefix(64).utf8)
         let len = roadBytes.count
-        var payload: [UInt8] = [0x07, 0x19, UInt8(len & 0xff), UInt8((len >> 8) & 0xff)]
+        var payload: [UInt8] = [0x07, 0x1A, UInt8(len & 0xff), UInt8((len >> 8) & 0xff)]
         payload.append(contentsOf: roadBytes)
         
         log("Đồng hồ xe: Cập nhật tên đường footer: ▲ \(clean)")

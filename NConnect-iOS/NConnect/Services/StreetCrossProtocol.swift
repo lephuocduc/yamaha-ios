@@ -105,6 +105,16 @@ public final class StreetCrossProtocol {
     // MARK: - Xử lý lệnh vận hành & phím bấm tay lái
     private func handleOperationalCommands(command: UInt8, bytes: [UInt8]) -> Data? {
         switch command {
+        case 51, 53, 57: // 0x33: Phím (+) / Nút Lên trên cùm tay lái xe
+            print("[StreetCross] Phím cùm xe: Phóng to (+) / Zoom In (mã \(command))")
+            onHandlebarButtonReceived?(.zoomIn)
+            return nil
+            
+        case 52, 54, 58: // 0x34: Phím (-) / Nút Xuống trên cùm tay lái xe
+            print("[StreetCross] Phím cùm xe: Thu nhỏ (-) / Zoom Out (mã \(command))")
+            onHandlebarButtonReceived?(.zoomOut)
+            return nil
+            
         case 55: // 0x37: Xe yêu cầu bắt đầu nhận hình hoặc mở danh sách
             print("[StreetCross] Menu đồng hồ: Mở danh sách / Bắt đầu nhận hình (55)")
             onHandlebarButtonReceived?(.startStreamOrOpenMenu)

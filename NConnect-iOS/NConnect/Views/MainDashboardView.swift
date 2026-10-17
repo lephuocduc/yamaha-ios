@@ -25,6 +25,44 @@ public struct MainDashboardView: View {
                 
                 ScrollView {
                     VStack(spacing: 20) {
+                        // Thông báo khi xe đã đến nơi đích
+                        if let arrivalMsg = navEngine.arrivalMessage {
+                            HStack(spacing: 12) {
+                                Image(systemName: "flag.checkered.circle.fill")
+                                    .font(.system(size: 28, weight: .bold))
+                                    .foregroundColor(.green)
+                                
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("ĐÃ ĐẾN NƠI!")
+                                        .font(.system(size: 15, weight: .heavy))
+                                        .foregroundColor(.green)
+                                    Text(arrivalMsg)
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundColor(.white)
+                                }
+                                
+                                Spacer()
+                                
+                                Button(action: {
+                                    withAnimation {
+                                        navEngine.arrivalMessage = nil
+                                    }
+                                }) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.title2)
+                                        .foregroundColor(.green)
+                                }
+                            }
+                            .padding(12)
+                            .background(Color(red: 0.04, green: 0.16, blue: 0.08).opacity(0.96))
+                            .cornerRadius(14)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(Color.green, lineWidth: 1.5)
+                            )
+                            .shadow(color: Color.green.opacity(0.4), radius: 8)
+                        }
+                        
                         // 1. Thẻ trạng thái kết nối xe
                         connectionStatusCard
                         
@@ -290,7 +328,7 @@ public struct MainDashboardView: View {
                     color: .blue
                 ) {
                     if let work = navEngine.workLocation {
-                        navEngine.calculateRoute(to: work.coordinate)
+                        navEngine.calculateRoute(to: work.coordinate, destinationTitle: work.title)
                         ccuManager.startStreaming()
                     } else {
                         settingLocationType = .work
@@ -309,7 +347,7 @@ public struct MainDashboardView: View {
                     color: .green
                 ) {
                     if let home = navEngine.homeLocation {
-                        navEngine.calculateRoute(to: home.coordinate)
+                        navEngine.calculateRoute(to: home.coordinate, destinationTitle: home.title)
                         ccuManager.startStreaming()
                     } else {
                         settingLocationType = .home
@@ -406,7 +444,7 @@ public struct MainDashboardView: View {
                 ForEach(navEngine.favoriteLocations) { fav in
                     HStack {
                         Button(action: {
-                            navEngine.calculateRoute(to: fav.coordinate)
+                            navEngine.calculateRoute(to: fav.coordinate, destinationTitle: fav.title)
                             ccuManager.startStreaming()
                         }) {
                             HStack(spacing: 12) {
@@ -505,7 +543,7 @@ public struct MainDashboardView: View {
                                 }
                                 settingLocationType = nil
                             } else {
-                                navEngine.calculateRoute(to: item.coordinate)
+                                navEngine.calculateRoute(to: item.coordinate, destinationTitle: item.title)
                                 ccuManager.startStreaming()
                             }
                             showSearchSheet = false
@@ -584,7 +622,7 @@ public struct MainDashboardView: View {
                 
                 List(navEngine.nearbyGasStations) { station in
                     Button(action: {
-                        navEngine.calculateRoute(to: station.coordinate)
+                        navEngine.calculateRoute(to: station.coordinate, destinationTitle: station.title)
                         ccuManager.startStreaming()
                         showGasSheet = false
                     }) {

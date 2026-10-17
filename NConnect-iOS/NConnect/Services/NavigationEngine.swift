@@ -2,6 +2,7 @@ import Foundation
 import CoreLocation
 import MapKit
 import Combine
+import AVFoundation
 
 // MARK: - Bộ xử lý định vị và dẫn đường NConnect sử dụng OpenStreetMap (OSM) & Valhalla Routing Engine
 public final class NavigationEngine: NSObject, ObservableObject {
@@ -15,6 +16,9 @@ public final class NavigationEngine: NSObject, ObservableObject {
     @Published public var activeRoute: OSMRoute?
     @Published public var isSearching: Bool = false
     @Published public var isCalculatingRoute: Bool = false
+    @Published public var destinationTitle: String = "Điểm đến"
+    @Published public var arrivalMessage: String? = nil
+    @Published public var isVoiceGuidanceEnabled: Bool = true
     
     // Quản lý địa điểm đã lưu (Về nhà, Đi làm, Yêu thích)
     @Published public var homeLocation: SavedLocation?
@@ -24,6 +28,12 @@ public final class NavigationEngine: NSObject, ObservableObject {
     @Published public var currentHeading: Double = -1.0
     @Published public var isRerouting: Bool = false
     public var onRoadNameChanged: ((String) -> Void)?
+    
+    // Quản lý giọng nói chỉ đường tiếng Việt
+    private let speechSynthesizer = AVSpeechSynthesizer()
+    private var lastSpokenStepIndex: Int = -1
+    private var hasSpoken300mAlert: Bool = false
+    private var hasSpoken100mAlert: Bool = false
     
     // Lưu thông số để tự động tính lại lộ trình khi đi chệch hướng (Auto-Rerouting)
     private var currentDestinationCoordinate: CLLocationCoordinate2D?
@@ -348,9 +358,15 @@ public final class NavigationEngine: NSObject, ObservableObject {
         }.resume()
     }
     
-    // MARK: - Lập lộ trình chỉ đường bằng Valhalla Routing Engine (Tối ưu xe máy)
-    public func calculateRoute(from origin: CLLocationCoordinate2D? = nil, to destination: CLLocationCoordinate2D, autoStart: Bool = true) {
+    // MARK: - Lập lộ trình chỉ đường bằng Valhalla Routing Engine (Tối ưu xe máy, TRÁNH CAO TỐC & PHÍ)
+    public func calculateRoute(
+        from origin: CLLocationCoordinate2D? = nil,
+        to destination: CLLocationCoordinate2D,
+        destinationTitle: String = "Điểm đến",
+        autoStart: Bool = true
+    ) {
         self.currentDestinationCoordinate = destination
+        self.destinationTitle = destinationTitle
         let start = origin ?? currentLocation?.coordinate
         guard let startCoord = start else {
             print("[Nav] Chưa có vị trí GPS hiện tại hoặc Điểm A để lập lộ trình")
@@ -381,8 +397,8 @@ public final class NavigationEngine: NSObject, ObservableObject {
         }
     }
     
-    public func calculateRoute(to destination: CLLocationCoordinate2D) {
-        calculateRoute(from: nil, to: destination, autoStart: true)
+    public func calculateRoute(to destination: CLLocationCoordinate2D, destinationTitle: String = "Điểm đến") {
+        calculateRoute(from: nil, to: destination, destinationTitle: destinationTitle, autoStart: true)
     }
     
     public func startActiveNavigation() {
@@ -390,6 +406,9 @@ public final class NavigationEngine: NSObject, ObservableObject {
         self.isNavigating = true
         self.enableBackgroundUpdatesIfPossible()
         self.updateCurrentInstruction()
+        if let loc = currentLocation {
+            self.updateRemainingDistanceAndETA(currentLoc: loc)
+        }
     }
     
     private func applyCalculatedRoute(_ route: OSMRoute, autoStart: Bool = true) {
@@ -399,15 +418,31 @@ public final class NavigationEngine: NSObject, ObservableObject {
         self.activeRoute = route
         self.routeSteps = route.steps
         self.currentStepIndex = 0
+        self.arrivalMessage = nil
         self.enableBackgroundUpdatesIfPossible()
         self.isNavigating = autoStart
+        
+        // Tính toán thông số ETA và khoảng cách còn lại ban đầu
+        if let loc = currentLocation {
+            self.updateRemainingDistanceAndETA(currentLoc: loc)
+        } else {
+            self.currentInstruction.totalDistanceRemainingMeters = Int(route.distanceMeters)
+            self.currentInstruction.totalTimeRemainingSeconds = Int(route.durationSeconds)
+            let eta = Date().addingTimeInterval(route.durationSeconds)
+            let df = DateFormatter()
+            df.dateFormat = "HH:mm"
+            self.currentInstruction.etaString = df.string(from: eta)
+            let mins = max(1, Int(route.durationSeconds) / 60)
+            self.currentInstruction.remainingTimeFormatted = "\(mins) phút"
+        }
+        
         if autoStart {
             self.updateCurrentInstruction()
         }
-        print("[Nav] ✓ Lộ trình Valhalla sẵn sàng: \(route.steps.count) bước, cự ly \(Int(route.distanceMeters))m, thời gian \(Int(route.durationSeconds))s (autoStart: \(autoStart))")
+        print("[Nav] ✓ Lộ trình Valhalla sẵn sàng: \(route.steps.count) bước, cự ly \(Int(route.distanceMeters))m, thời gian \(Int(route.durationSeconds))s, ETA: \(self.currentInstruction.etaString) (autoStart: \(autoStart))")
     }
     
-    // MARK: - Gọi API Valhalla Routing Engine với cấu hình xe máy (costing: motorcycle)
+    // MARK: - Gọi API Valhalla Routing Engine với cấu hình xe máy (costing: motorcycle, TRÁNH 100% CAO TỐC & TRẠM THU PHÍ)
     private func requestValhallaRoute(start: CLLocationCoordinate2D, destination: CLLocationCoordinate2D, completion: @escaping (OSMRoute?) -> Void) {
         let serverUrl = UserDefaults.standard.string(forKey: "valhallaServerUrl") ?? "https://valhalla1.openstreetmap.de"
         let trimmedServer = serverUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -424,7 +459,8 @@ public final class NavigationEngine: NSObject, ObservableObject {
             "costing": "motorcycle",
             "costing_options": [
                 "motorcycle": [
-                    "use_highways": 0.5,
+                    "use_highways": 0.0, // 0.0 = TUYỆT ĐỐI KHÔNG ĐI VÀO ĐƯỜNG CAO TỐC (Cấm xe máy ở VN)
+                    "use_tolls": 0.0,    // 0.0 = Không đi vào đường thu phí cao tốc
                     "use_trails": 0.0
                 ]
             ],
@@ -668,6 +704,98 @@ public final class NavigationEngine: NSObject, ObservableObject {
         }
     }
     
+    // MARK: - Xử lý khi xe đã đến đích (Đạt điểm đến & Tự động kết thúc chỉ đường)
+    public func handleArrival() {
+        guard isNavigating else { return }
+        let destName = destinationTitle.isEmpty ? "Điểm đến" : destinationTitle
+        print("[Nav] 🎯 ĐÃ ĐẾN NƠI: \(destName)! Dừng chỉ đường.")
+        
+        var inst = NavigationInstruction()
+        inst.direction = .destination
+        inst.distanceMeters = 0
+        inst.nextRoadName = "Đã đến nơi"
+        inst.destinationName = destName
+        inst.hasArrived = true
+        inst.isNavigating = false
+        inst.currentRoadName = currentRoadName
+        currentInstruction = inst
+        
+        arrivalMessage = "Đã đến nơi: \(destName)!"
+        speak("Bạn đã đến nơi: \(destName). Đã kết thúc chỉ đường.")
+        
+        // Dừng điều hướng
+        stopNavigation()
+        
+        // Giữ lại trạng thái thông báo đến đích trong 8 giây
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) { [weak self] in
+            if self?.arrivalMessage != nil {
+                self?.arrivalMessage = nil
+            }
+        }
+    }
+    
+    // MARK: - Phát âm giọng nói chỉ đường tiếng Việt chuẩn (Text-to-Speech)
+    public func speak(_ text: String) {
+        guard isVoiceGuidanceEnabled else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            let utterance = AVSpeechUtterance(string: text)
+            if let viVoice = AVSpeechSynthesisVoice(language: "vi-VN") {
+                utterance.voice = viVoice
+            }
+            utterance.rate = 0.50
+            utterance.pitchMultiplier = 1.05
+            utterance.volume = 1.0
+            
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .voicePrompt, options: [.duckOthers])
+            try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+            
+            if self.speechSynthesizer.isSpeaking {
+                self.speechSynthesizer.stopSpeaking(at: .immediate)
+            }
+            self.speechSynthesizer.speak(utterance)
+        }
+    }
+    
+    // MARK: - Cập nhật khoảng cách còn lại và thời gian dự kiến đến (ETA)
+    public func updateRemainingDistanceAndETA(currentLoc: CLLocation) {
+        guard let route = activeRoute else { return }
+        
+        var remainingMeters = 0
+        if currentStepIndex < routeSteps.count {
+            let curTarget = routeSteps[currentStepIndex].coordinate
+            let distToStep = currentLoc.distance(from: CLLocation(latitude: curTarget.latitude, longitude: curTarget.longitude))
+            remainingMeters += Int(distToStep)
+            
+            for i in (currentStepIndex + 1)..<routeSteps.count {
+                remainingMeters += routeSteps[i].distanceMeters
+            }
+        }
+        
+        let totalDistance = max(1.0, route.distanceMeters)
+        let progress = max(0.0, min(1.0, Double(remainingMeters) / totalDistance))
+        let remainingSeconds = Int(route.durationSeconds * progress)
+        
+        currentInstruction.totalDistanceRemainingMeters = remainingMeters
+        currentInstruction.totalTimeRemainingSeconds = remainingSeconds
+        
+        // Định dạng giờ đến (ETA HH:mm)
+        let etaDate = Date().addingTimeInterval(TimeInterval(remainingSeconds))
+        let df = DateFormatter()
+        df.dateFormat = "HH:mm"
+        currentInstruction.etaString = df.string(from: etaDate)
+        
+        // Định dạng thời gian di chuyển còn lại
+        if remainingSeconds < 3600 {
+            let mins = max(1, remainingSeconds / 60)
+            currentInstruction.remainingTimeFormatted = "\(mins) phút"
+        } else {
+            let hours = remainingSeconds / 3600
+            let mins = (remainingSeconds % 3600) / 60
+            currentInstruction.remainingTimeFormatted = "\(hours)h \(mins)p"
+        }
+    }
+    
     public func stopNavigation() {
         isNavigating = false
         isRerouting = false
@@ -676,30 +804,50 @@ public final class NavigationEngine: NSObject, ObservableObject {
         activeRoute = nil
         routeSteps.removeAll()
         currentStepIndex = 0
-        currentInstruction = NavigationInstruction()
+        lastSpokenStepIndex = -1
+        hasSpoken300mAlert = false
+        hasSpoken100mAlert = false
+        
+        var inst = NavigationInstruction()
+        inst.currentRoadName = currentRoadName
+        inst.isNavigating = false
+        currentInstruction = inst
     }
     
     private func updateCurrentInstruction() {
         guard isNavigating, currentStepIndex < routeSteps.count else {
             if currentStepIndex >= routeSteps.count && !routeSteps.isEmpty {
-                var inst = NavigationInstruction()
-                inst.direction = .destination
-                inst.distanceMeters = 0
-                inst.nextRoadName = "Đã đến nơi"
-                inst.isNavigating = true
-                currentInstruction = inst
+                handleArrival()
             }
             return
         }
         
         let step = routeSteps[currentStepIndex]
-        var inst = NavigationInstruction()
+        var inst = currentInstruction
         inst.direction = step.direction
         inst.distanceMeters = step.distanceMeters
         inst.nextRoadName = step.roadName
+        inst.detailedInstruction = step.instruction
+        inst.destinationName = destinationTitle
         inst.isNavigating = true
+        inst.currentRoadName = currentRoadName
         
         currentInstruction = inst
+        
+        // Giọng nói khi chuyển sang bước rẽ mới
+        if currentStepIndex != lastSpokenStepIndex {
+            lastSpokenStepIndex = currentStepIndex
+            hasSpoken300mAlert = false
+            hasSpoken100mAlert = false
+            
+            let dist = step.distanceMeters
+            let distStr = dist < 1000 ? "\(dist) mét" : String(format: "%.1f ki-lô-mét", Double(dist) / 1000.0)
+            if step.direction == .straight {
+                speak("Đi tiếp \(distStr) trên \(step.roadName)")
+            } else {
+                speak("\(step.direction.descriptionVi) vào \(step.roadName)")
+            }
+        }
     }
     
     // Ánh xạ phân loại rẽ của OSRM sang mã hướng biểu tượng Garmin StreetCross
@@ -834,14 +982,44 @@ extension NavigationEngine: CLLocationManagerDelegate {
             currentSpeedKmh = 0.0
         }
         
-        // Khi xe di chuyển đến gần ngã rẽ, tự động chuyển sang bước tiếp theo
+        // 1. KIỂM TRA ĐÃ ĐẾN NƠI (Đến điểm đích): Dừng chỉ đường & Phát thông báo
+        if isNavigating, let dest = currentDestinationCoordinate {
+            let distToDest = loc.distance(from: CLLocation(latitude: dest.latitude, longitude: dest.longitude))
+            if distToDest < 32.0 || (currentStepIndex >= routeSteps.count && !routeSteps.isEmpty) {
+                handleArrival()
+                return
+            }
+        }
+        
+        // 2. Khi xe di chuyển đến gần ngã rẽ, tự động chuyển sang bước tiếp theo & cập nhật ETA
         if isNavigating && currentStepIndex < routeSteps.count {
-            let target = routeSteps[currentStepIndex].coordinate
+            let step = routeSteps[currentStepIndex]
+            let target = step.coordinate
             let dist = loc.distance(from: CLLocation(latitude: target.latitude, longitude: target.longitude))
             
             // Cập nhật khoảng cách còn lại tới ngã rẽ
             if dist > 0 && dist < 100_000 {
                 currentInstruction.distanceMeters = Int(dist)
+            }
+            
+            // Cập nhật khoảng cách tổng và thời gian dự kiến đến (ETA)
+            updateRemainingDistanceAndETA(currentLoc: loc)
+            
+            // Cảnh báo giọng nói trước ngã rẽ ở 300 mét và 100 mét
+            if dist <= 350.0 && dist > 150.0 && !hasSpoken300mAlert {
+                hasSpoken300mAlert = true
+                if step.direction == .straight {
+                    speak("Tiếp tục đi thẳng trên \(step.roadName)")
+                } else {
+                    speak("Sau \(Int(dist)) mét nữa, chuẩn bị \(step.direction.descriptionVi.lowercased()) vào \(step.roadName)")
+                }
+            } else if dist <= 120.0 && dist > 35.0 && !hasSpoken100mAlert {
+                hasSpoken100mAlert = true
+                if step.direction == .straight {
+                    speak("Đi thẳng trên \(step.roadName)")
+                } else {
+                    speak("Chuẩn bị \(step.direction.descriptionVi.lowercased()) vào \(step.roadName)")
+                }
             }
             
             // Ngưỡng chuyển bước thích ứng theo tốc độ (High-Speed Adaptive Turn Threshold):
