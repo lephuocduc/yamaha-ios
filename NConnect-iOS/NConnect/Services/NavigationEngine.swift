@@ -37,6 +37,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
     private var lastGeocodeTime: Date = .distantPast
     private var routeSteps: [NavigationStep] = []
     private var currentStepIndex: Int = 0
+    private var searchWorkItem: DispatchWorkItem?
     
     public override init() {
         let config = URLSessionConfiguration.default
@@ -134,82 +135,94 @@ public final class NavigationEngine: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Tìm kiếm địa điểm bằng OpenStreetMap (Nominatim + Photon OSM Fallback)
+    // MARK: - Tìm kiếm địa chỉ & địa điểm siêu tốc bằng MapKit LocalSearch (Hỗ trợ 100% địa danh Việt Nam)
     public func searchPlaces(query: String) {
+        searchWorkItem?.cancel()
+        
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             searchResults = []
+            isSearching = false
             return
         }
         
         isSearching = true
-        guard let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return }
         
-        // 1. Thử tìm kiếm bằng OpenStreetMap Nominatim
-        var urlString = "https://nominatim.openstreetmap.org/search?q=\(encoded)&format=json&addressdetails=1&limit=12&accept-language=vi"
-        if let loc = currentLocation {
-            // Giới hạn vùng tìm kiếm ưu tiên quanh tọa độ xe máy (bán kính ~50km)
-            let delta = 0.5
-            let minLon = loc.coordinate.longitude - delta
-            let maxLon = loc.coordinate.longitude + delta
-            let minLat = loc.coordinate.latitude - delta
-            let maxLat = loc.coordinate.latitude + delta
-            urlString += "&viewbox=\(minLon),\(maxLat),\(maxLon),\(minLat)&bounded=0"
-        }
-        
-        guard let url = URL(string: urlString) else { return }
-        var request = URLRequest(url: url)
-        request.setValue("NConnect-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
-        
-        networkSession.dataTask(with: request) { [weak self] data, response, error in
+        let work = DispatchWorkItem { [weak self] in
             guard let self = self else { return }
             
-            if let data = data,
-               let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-               !jsonArray.isEmpty {
-                var items: [SavedLocation] = []
-                for item in jsonArray {
-                    guard let latStr = item["lat"] as? String, let lat = Double(latStr),
-                          let lonStr = item["lon"] as? String, let lon = Double(lonStr) else { continue }
-                    
-                    let displayName = item["display_name"] as? String ?? trimmed
-                    let name = item["name"] as? String
-                    let title = (name != nil && !name!.isEmpty) ? name! : (displayName.components(separatedBy: ",").first ?? trimmed)
-                    
-                    items.append(SavedLocation(
-                        title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                        subtitle: displayName,
-                        latitude: lat,
-                        longitude: lon,
-                        type: .favorite
-                    ))
-                }
-                
-                DispatchQueue.main.async {
-                    self.isSearching = false
-                    self.searchResults = items
-                }
-                return
+            let request = MKLocalSearch.Request()
+            request.naturalLanguageQuery = trimmed
+            request.resultTypes = [.address, .pointOfInterest]
+            
+            // Ưu tiên kết quả quanh tọa độ xe máy trong bán kính ~60km
+            if let loc = self.currentLocation {
+                let span = MKCoordinateSpan(latitudeDelta: 0.6, longitudeDelta: 0.6)
+                request.region = MKCoordinateRegion(center: loc.coordinate, span: span)
             }
             
-            // 2. Dự phòng bằng Photon OSM nếu Nominatim không trả lời
-            self.fallbackPhotonSearch(query: trimmed)
-        }.resume()
+            let search = MKLocalSearch(request: request)
+            search.start { [weak self] response, error in
+                guard let self = self else { return }
+                
+                if let response = response, !response.mapItems.isEmpty {
+                    let items: [SavedLocation] = response.mapItems.compactMap { item in
+                        let title = item.name ?? trimmed
+                        let placemark = item.placemark
+                        
+                        var addressComponents: [String] = []
+                        if let num = placemark.subThoroughfare, !num.isEmpty { addressComponents.append(num) }
+                        if let street = placemark.thoroughfare, !street.isEmpty { addressComponents.append(street) }
+                        if let ward = placemark.subLocality, !ward.isEmpty { addressComponents.append(ward) }
+                        if let district = placemark.locality, !district.isEmpty { addressComponents.append(district) }
+                        if let city = placemark.administrativeArea, !city.isEmpty { addressComponents.append(city) }
+                        
+                        let subtitle = addressComponents.isEmpty ? (placemark.title ?? "Việt Nam") : addressComponents.joined(separator: ", ")
+                        
+                        return SavedLocation(
+                            title: title,
+                            subtitle: subtitle,
+                            latitude: placemark.coordinate.latitude,
+                            longitude: placemark.coordinate.longitude,
+                            type: .favorite
+                        )
+                    }
+                    
+                    DispatchQueue.main.async {
+                        self.isSearching = false
+                        self.searchResults = items
+                    }
+                } else {
+                    // Dự phòng: Thử tìm kiếm Nominatim / Photon nếu MapKit không có kết quả
+                    self.fallbackPhotonSearch(query: trimmed)
+                }
+            }
+        }
+        
+        self.searchWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
     }
     
     private func fallbackPhotonSearch(query: String) {
-        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return }
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            DispatchQueue.main.async { self.isSearching = false }
+            return
+        }
         var urlStr = "https://photon.komoot.io/api/?q=\(encoded)&limit=10&lang=default"
         if let loc = currentLocation {
             urlStr += "&lat=\(loc.coordinate.latitude)&lon=\(loc.coordinate.longitude)"
         }
-        guard let url = URL(string: urlStr) else { return }
+        guard let url = URL(string: urlStr) else {
+            DispatchQueue.main.async { self.isSearching = false }
+            return
+        }
         
         networkSession.dataTask(with: url) { [weak self] data, _, _ in
-            guard let self = self, let data = data,
+            guard let self = self else { return }
+            guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let features = json["features"] as? [[String: Any]] else {
-                DispatchQueue.main.async { self?.isSearching = false }
+                  let features = json["features"] as? [[String: Any]], !features.isEmpty else {
+                DispatchQueue.main.async { self.isSearching = false }
                 return
             }
             
@@ -235,74 +248,57 @@ public final class NavigationEngine: NSObject, ObservableObject {
         }.resume()
     }
     
-    // MARK: - Tra cứu tên địa điểm & địa chỉ từ tọa độ (Reverse Geocoding OpenStreetMap)
+    // MARK: - Tra cứu tên địa điểm & địa chỉ từ tọa độ (Native CLGeocoder + Fallback OSM)
     public func reverseGeocode(coordinate: CLLocationCoordinate2D, completion: @escaping (String, String) -> Void) {
         let loc = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
         let geocoder = CLGeocoder()
         
-        let urlString = "https://nominatim.openstreetmap.org/reverse?format=json&lat=\(coordinate.latitude)&lon=\(coordinate.longitude)&zoom=18&addressdetails=1&accept-language=vi"
-        guard let url = URL(string: urlString) else {
-            geocoder.reverseGeocodeLocation(loc) { placemarks, _ in
-                DispatchQueue.main.async {
-                    if let p = placemarks?.first {
-                        let title = p.name ?? p.thoroughfare ?? "Vị trí đã chọn"
-                        let subtitle = [p.subThoroughfare, p.thoroughfare, p.subLocality, p.locality, p.administrativeArea]
-                            .compactMap { $0 }
-                            .joined(separator: ", ")
-                        completion(title, subtitle.isEmpty ? String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude) : subtitle)
-                    } else {
-                        completion("Vị trí đã chọn", String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude))
-                    }
-                }
-            }
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.setValue("NConnect-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 6
-        
-        networkSession.dataTask(with: request) { data, response, error in
-            if let data = data,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let displayName = json["display_name"] as? String {
-                
-                let name = json["name"] as? String
-                let address = json["address"] as? [String: Any]
-                let road = address?["road"] as? String
-                let suburb = address?["suburb"] as? String ?? address?["quarter"] as? String
-                let city = address?["city"] as? String ?? address?["county"] as? String
-                
-                let title: String = {
-                    if let n = name, !n.isEmpty { return n }
-                    if let r = road, !r.isEmpty { return r }
-                    return displayName.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? "Vị trí đã chọn"
-                }()
-                
-                let subtitle: String = {
-                    var parts: [String] = []
-                    if let s = suburb, !s.isEmpty { parts.append(s) }
-                    if let c = city, !c.isEmpty { parts.append(c) }
-                    if !parts.isEmpty { return parts.joined(separator: ", ") }
-                    return displayName
-                }()
+        geocoder.reverseGeocodeLocation(loc) { [weak self] placemarks, error in
+            if let p = placemarks?.first {
+                let title = p.name ?? p.thoroughfare ?? "Vị trí đã chọn"
+                var parts: [String] = []
+                if let num = p.subThoroughfare, !num.isEmpty { parts.append(num) }
+                if let st = p.thoroughfare, !st.isEmpty { parts.append(st) }
+                if let ward = p.subLocality, !ward.isEmpty { parts.append(ward) }
+                if let dist = p.locality, !dist.isEmpty { parts.append(dist) }
+                if let prov = p.administrativeArea, !prov.isEmpty { parts.append(prov) }
+                let subtitle = parts.isEmpty ? String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude) : parts.joined(separator: ", ")
                 
                 DispatchQueue.main.async {
                     completion(title, subtitle)
                 }
             } else {
-                geocoder.reverseGeocodeLocation(loc) { placemarks, _ in
-                    DispatchQueue.main.async {
-                        if let p = placemarks?.first {
-                            let title = p.name ?? p.thoroughfare ?? "Vị trí đã chọn"
-                            let subtitle = [p.subThoroughfare, p.thoroughfare, p.subLocality, p.locality, p.administrativeArea]
-                                .compactMap { $0 }
-                                .joined(separator: ", ")
-                            completion(title, subtitle.isEmpty ? String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude) : subtitle)
-                        } else {
-                            completion("Vị trí đã chọn", String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude))
-                        }
-                    }
+                // Dự phòng OSM Nominatim
+                self?.fallbackOsmReverseGeocode(coordinate: coordinate, completion: completion)
+            }
+        }
+    }
+    
+    private func fallbackOsmReverseGeocode(coordinate: CLLocationCoordinate2D, completion: @escaping (String, String) -> Void) {
+        let urlString = "https://nominatim.openstreetmap.org/reverse?format=json&lat=\(coordinate.latitude)&lon=\(coordinate.longitude)&zoom=18&addressdetails=1&accept-language=vi"
+        guard let url = URL(string: urlString) else {
+            completion("Vị trí đã chọn", String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude))
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 4
+        
+        networkSession.dataTask(with: request) { data, _, _ in
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let displayName = json["display_name"] as? String {
+                let name = json["name"] as? String
+                let address = json["address"] as? [String: Any]
+                let road = address?["road"] as? String
+                let title = (name != nil && !name!.isEmpty) ? name! : (road ?? displayName.components(separatedBy: ",").first ?? "Vị trí đã chọn")
+                DispatchQueue.main.async {
+                    completion(title, displayName)
+                }
+            } else {
+                DispatchQueue.main.async {
+                    completion("Vị trí đã chọn", String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude))
                 }
             }
         }.resume()

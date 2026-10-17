@@ -913,41 +913,34 @@ public class CustomOSMTileOverlay: MKTileOverlay {
             return
         }
         
-        let primaryUrlStr = "https://tile.openstreetmap.de/\(path.z)/\(path.x)/\(path.y).png"
-        let fallbackUrlStr = "https://maps.wikimedia.org/osm-intl/\(path.z)/\(path.x)/\(path.y).png"
-        
-        guard let url = URL(string: primaryUrlStr) else {
-            result(nil, nil)
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 6
-        
-        session.dataTask(with: request) { [weak self] data, response, error in
+        // Sử dụng pipeline nạp ngói phần cứng đa luồng tích hợp của Apple MapKit (siêu tốc qua Edge CDN)
+        super.loadTile(at: path) { [weak self] data, error in
             guard let self = self else { return }
-            if let data = data, (response as? HTTPURLResponse)?.statusCode == 200, data.count > 1000 {
+            if let data = data, data.count > 1000 {
                 self.memoryCache.setObject(data as NSData, forKey: key)
                 OSMTileEngine.shared.saveTileData(data, x: path.x, y: path.y, z: path.z)
                 result(data, nil)
-            } else if let fallbackUrl = URL(string: fallbackUrlStr) {
-                var req2 = URLRequest(url: fallbackUrl)
-                req2.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
-                req2.timeoutInterval = 6
-                self.session.dataTask(with: req2) { [weak self] d2, r2, e2 in
-                    if let d2 = d2, (r2 as? HTTPURLResponse)?.statusCode == 200, d2.count > 1000 {
-                        self?.memoryCache.setObject(d2 as NSData, forKey: key)
-                        OSMTileEngine.shared.saveTileData(d2, x: path.x, y: path.y, z: path.z)
-                        result(d2, nil)
-                    } else {
-                        result(nil, error ?? e2)
-                    }
-                }.resume()
             } else {
-                result(nil, error)
+                // Fallback: Thử máy chủ OpenStreetMap DE
+                let fbUrlStr = "https://tile.openstreetmap.de/\(path.z)/\(path.x)/\(path.y).png"
+                if let fbUrl = URL(string: fbUrlStr) {
+                    var req = URLRequest(url: fbUrl)
+                    req.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
+                    req.timeoutInterval = 4
+                    self.session.dataTask(with: req) { [weak self] d2, r2, e2 in
+                        if let d2 = d2, (r2 as? HTTPURLResponse)?.statusCode == 200, d2.count > 1000 {
+                            self?.memoryCache.setObject(d2 as NSData, forKey: key)
+                            OSMTileEngine.shared.saveTileData(d2, x: path.x, y: path.y, z: path.z)
+                            result(d2, nil)
+                        } else {
+                            result(nil, error ?? e2)
+                        }
+                    }.resume()
+                } else {
+                    result(nil, error)
+                }
             }
-        }.resume()
+        }
     }
 }
 
@@ -1013,6 +1006,15 @@ public struct OSMMapView: UIViewRepresentable {
         if trackingMode == .follow, let loc = navEngine.currentLocation {
             let speedKmh = max(0.0, loc.speed * 3.6)
             
+            // Giữ nguyên mức zoom hiện tại của người dùng, không bao giờ tự ý zoom vào khi bấm đổi hướng
+            let currentDistance: CLLocationDistance = {
+                let d = uiView.camera.centerCoordinateDistance
+                if d > 120.0 {
+                    return d
+                }
+                return speedKmh > 65.0 ? 800.0 : 500.0
+            }()
+            
             let camera: MKMapCamera
             switch orientationMode {
             case .headingTracking:
@@ -1037,20 +1039,9 @@ public struct OSMMapView: UIViewRepresentable {
                     }
                 }()
                 
-                // Tầm nhìn mở rộng thích ứng tốc độ cao (Speed-Adaptive Distance)
-                let viewDistance: CLLocationDistance = {
-                    if speedKmh > 65.0 {
-                        return 850.0
-                    } else if speedKmh > 35.0 {
-                        return 600.0
-                    } else {
-                        return 420.0
-                    }
-                }()
-                
                 camera = MKMapCamera(
                     lookingAtCenter: loc.coordinate,
-                    fromDistance: viewDistance,
+                    fromDistance: currentDistance,
                     pitch: pitch,
                     heading: effectiveHeading
                 )
@@ -1058,19 +1049,10 @@ public struct OSMMapView: UIViewRepresentable {
             case .northUp:
                 // Cố định phương Bắc (North-Up):
                 // Bản đồ luôn hướng thẳng phương Bắc (heading = 0.0°), góc nhìn phẳng 2D từ trên xuống (pitch = 0.0°)
-                let viewDistance: CLLocationDistance = {
-                    if speedKmh > 65.0 {
-                        return 950.0
-                    } else if speedKmh > 35.0 {
-                        return 700.0
-                    } else {
-                        return 500.0
-                    }
-                }()
-                
+                // GIỮ NGUYÊN MỨC ZOOM HIỆN TẠI (currentDistance), CHỈ XOAY HƯỚNG BẢN ĐỒ
                 camera = MKMapCamera(
                     lookingAtCenter: loc.coordinate,
-                    fromDistance: viewDistance,
+                    fromDistance: currentDistance,
                     pitch: 0.0,
                     heading: 0.0
                 )

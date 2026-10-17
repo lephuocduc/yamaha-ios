@@ -13,38 +13,35 @@ public final class OSMTileEngine {
     private let cacheDirectory: URL
     private let session: URLSession
     
-    // Mặc định dùng ngói OpenStreetMap chuẩn của FOSSGIS (100% dữ liệu OSM, không cần API key, độ tương phản sắc nét)
-    public var tileUrlTemplate: String = "https://tile.openstreetmap.de/{z}/{x}/{y}.png"
+    // Sử dụng ngói bản đồ OpenStreetMap tốc độ cao có CDN toàn cầu (Cloudflare Edge, phản hồi ~200ms)
+    public var tileUrlTemplate: String = "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
     
     public init() {
-        memoryCache.countLimit = 300 // Lưu tối đa 300 ngói trong bộ nhớ RAM
+        memoryCache.countLimit = 400 // Lưu tối đa 400 ngói trong bộ nhớ RAM
         let paths = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)
-        // Dùng thư mục cache mới để tự động xóa sạch các ngói watermark CartoDB cũ nếu có
         cacheDirectory = paths[0].appendingPathComponent("OSMTiles_v2")
         try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
         
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 6
+        config.timeoutIntervalForRequest = 4
         config.requestCachePolicy = .returnCacheDataElseLoad
         self.session = URLSession(configuration: config)
     }
     
     public func getCachedTile(x: Int, y: Int, z: Int) -> UIImage? {
-        if let data = getCachedTileData(x: x, y: y, z: z) {
-            let key = "\(z)_\(x)_\(y)" as NSString
-            if let img = UIImage(data: data) {
-                memoryCache.setObject(img, forKey: key)
-                return img
-            }
+        let key = "\(z)_\(x)_\(y)" as NSString
+        if let cached = memoryCache.object(forKey: key) {
+            return cached
+        }
+        let fileURL = cacheDirectory.appendingPathComponent("\(z)_\(x)_\(y).png")
+        if let data = try? Data(contentsOf: fileURL), data.count > 1000, let img = UIImage(data: data) {
+            memoryCache.setObject(img, forKey: key)
+            return img
         }
         return nil
     }
     
     public func getCachedTileData(x: Int, y: Int, z: Int) -> Data? {
-        let key = "\(z)_\(x)_\(y)" as NSString
-        if let cached = memoryCache.object(forKey: key), let png = cached.pngData() {
-            return png
-        }
         let fileURL = cacheDirectory.appendingPathComponent("\(z)_\(x)_\(y).png")
         if let data = try? Data(contentsOf: fileURL), data.count > 1000 {
             return data
@@ -75,7 +72,7 @@ public final class OSMTileEngine {
         
         var request = URLRequest(url: url)
         request.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 6
+        request.timeoutInterval = 4
         
         session.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else {
@@ -89,11 +86,12 @@ public final class OSMTileEngine {
                 try? data.write(to: fileURL)
                 completion(img)
             } else {
-                // Fallback: Thử máy chủ Wikimedia OSM
-                let fbUrlStr = "https://maps.wikimedia.org/osm-intl/\(z)/\(x)/\(y).png"
+                // Fallback: Thử máy chủ OpenStreetMap DE
+                let fbUrlStr = "https://tile.openstreetmap.de/\(z)/\(x)/\(y).png"
                 if let fbUrl = URL(string: fbUrlStr) {
                     var req2 = URLRequest(url: fbUrl)
                     req2.setValue("MyNMAX-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
+                    req2.timeoutInterval = 4
                     self.session.dataTask(with: req2) { [weak self] d2, r2, _ in
                         guard let self = self else {
                             completion(nil)
