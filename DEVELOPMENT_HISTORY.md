@@ -304,6 +304,26 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
 
 ---
 
+### 🔴 TÍNH NĂNG 16: Tối ưu điều hướng, Footer tên đường thực tế & Tìm kiếm trạm xăng Apple Maps (v0.5.21 Build 47)
+* **Các vấn đề thực tế đã phát hiện & giải quyết triệt để**:
+  1. **Lỗi Footer hiện tên đường tiếp theo thay vì đường hiện tại**:
+     - *Nguyên nhân*: Hàm `checkCurrentRoadName(at:)` gán nhầm `self.currentRoadName = step.roadName` với `step` là ngã rẽ sắp tới (maneuver ahead).
+     - *Giải pháp*: Tách biệt hoàn toàn: Tên đường rẽ tiếp theo nằm ở Top Banner (`350 m · [nextRoadName]`). Tên đường hiện tại xe đang lăn bánh thực tế trên footer lấy từ `currentStepRoadName` (bước rẽ đang chạy) và được giải mã tọa độ GPS tức thời bằng Apple `CLGeocoder` (`thoroughfare`). Tuyệt đối không fallback sang `nextRoadName`.
+  2. **Lỗi nhảy cóc ngã rẽ sớm khi đang chờ đèn đỏ**:
+     - *Nguyên nhân*: Ngưỡng chuyển bước `max(28.0, speedMps * 2.2)` có mức tối thiểu 28m kể cả khi đứng yên (`speed = 0`), kết hợp với luật `nextDist < dist && dist < 90.0` khiến xe vừa dừng chờ đèn đỏ cách ngã rẽ 20-30m thì màn hình đã lập tức nhảy cóc sang chỉ dẫn của ngã rẽ tiếp theo.
+     - *Giải pháp*: Xây dựng máy trạng thái `Turn Advancement State Machine`:
+       - Khi tốc độ xe `< 2.2 m/s` (< 8 km/h - dừng chờ đèn đỏ hoặc bò rất chậm): **TUYỆT ĐỐI KHÔNG nhảy bước** trừ khi xe đã lọt sát đỉnh ngã rẽ (`dist <= 7.0m`).
+       - Khi xe di chuyển thực tế (`speed >= 2.2 m/s`): Chỉ chuyển bước khi đã vào ngã rẽ (`dist <= 12.0m`) HOẶC đã đi qua đỉnh rẽ và đang rời xa dần trên đường mới (`minDistanceToCurrentStep < 25.0m && dist - minDistanceToCurrentStep >= 4.0m`). Loại bỏ hoàn toàn quy tắc lookahead 90m gây lỗi trong đô thị.
+  3. **Footer khi chạy tự do (không điều hướng)**:
+     - Kích hoạt luồng `CLGeocoder` chạy ngầm định kỳ (throttling 20m / 3.5s). Khi không bật dẫn đường, footer màn hình xe và app tự động cập nhật liên tục tên con đường xe đang chạy thực tế (`▲ [currentRoadName]`).
+  4. **Nút bấm Menu trên xe (Home, Work, Favorites) lấy trực tiếp từ dữ liệu đã lưu**:
+     - Đồng bộ tự động 2 chiều giữa `SavedPlacesManager` (`saved_*`) và `NavigationEngine` (`nconnect_*`). Khi xe kết nối MFi/BLE, trạng thái bật/tắt của Service 10 & 11 được kích hoạt ngay nếu người dùng đã lưu bất kỳ đâu.
+     - Khắc phục lỗi trùng lặp `case 55:` trong bộ nhận lệnh NaviLite khiến các lệnh mở Favorites (sub 3) và Gas Station (sub 4) từ cùm xe bị nuốt chửng.
+  5. **Tìm kiếm trạm xăng (Gas Station Search)**:
+     - Thay thế hoàn toàn API OpenStreetMap Nominatim (vốn bị rate-limit và trả về rỗng) bằng Apple MapKit `MKLocalSearch` (`"Cây xăng"` / `"Trạm xăng"`). Tìm kiếm tức thì trong bán kính 12km với đầy đủ tên thương hiệu (Petrolimex, PV Oil, Comeco...), địa chỉ và cự ly di chuyển.
+
+---
+
 ## 4. QUY TRÌNH BIÊN DỊCH VÀ PHÁT HÀNH (CI/CD)
 - Dự án sử dụng GitHub Actions workflow (`.github/workflows/build-ios.yml`).
 - Mỗi khi có commit mới được push lên nhánh `main`, hệ thống tự động:
@@ -311,4 +331,5 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
   2. Biên dịch dự án bằng lệnh `xcodebuild` (SDK `iphoneos`, cấu hình `Release`).
   3. Đóng gói thư mục `Payload` thành file `NConnect.ipa`.
   4. Xuất file Artifact `NConnect-iOS-IPA` để tải về và cài đặt trực tiếp qua TrollStore / AltStore / Sideloadly / Scarlet.
+
 

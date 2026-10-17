@@ -311,8 +311,8 @@ public final class TFTStreamRenderer: ObservableObject {
             let road: String
             if !nav.currentRoadName.isEmpty && nav.currentRoadName != "MyNMAX" {
                 road = nav.currentRoadName
-            } else if !nav.currentInstruction.nextRoadName.isEmpty {
-                road = nav.currentInstruction.nextRoadName
+            } else if nav.isNavigating && !nav.currentStepRoadName.isEmpty {
+                road = nav.currentStepRoadName
             } else {
                 road = "Yamaha NMAX"
             }

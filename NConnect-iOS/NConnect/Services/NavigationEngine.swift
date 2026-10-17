@@ -45,13 +45,25 @@ public final class NavigationEngine: NSObject, ObservableObject {
     private var offRouteConsecutiveTicks: Int = 0
     
     private let locationManager = CLLocationManager()
+    private let geocoder = CLGeocoder()
     private let networkSession: URLSession
     private var isGeocoding: Bool = false
     private var lastGeocodedLocation: CLLocation?
     private var lastGeocodeTime: Date = .distantPast
     private var routeSteps: [NavigationStep] = []
     private var currentStepIndex: Int = 0
+    private var minDistanceToCurrentStep: CLLocationDistance = Double.greatestFiniteMagnitude
     private var searchWorkItem: DispatchWorkItem?
+    
+    // Tên con đường hiện tại xe đang lăn bánh thực tế (phục vụ hiển thị footer)
+    public var currentStepRoadName: String {
+        if currentStepIndex > 0 && currentStepIndex <= routeSteps.count {
+            return routeSteps[currentStepIndex - 1].roadName
+        } else if !routeSteps.isEmpty {
+            return routeSteps[0].roadName
+        }
+        return ""
+    }
     
     public override init() {
         let config = URLSessionConfiguration.default
@@ -328,48 +340,71 @@ public final class NavigationEngine: NSObject, ObservableObject {
         }.resume()
     }
     
-    // MARK: - Tìm trạm xăng lân cận bằng OpenStreetMap (OSM Fuel Search)
+    // MARK: - Tìm trạm xăng lân cận bằng Apple MapKit LocalSearch (Hỗ trợ 100% cây xăng Việt Nam)
     public func fetchNearbyGasStations() {
-        guard let loc = currentLocation else { return }
+        guard let loc = currentLocation else {
+            locationManager.requestLocation()
+            return
+        }
         
-        let delta = 0.08 // bán kính khoảng 8km
-        let minLon = loc.coordinate.longitude - delta
-        let maxLon = loc.coordinate.longitude + delta
-        let minLat = loc.coordinate.latitude - delta
-        let maxLat = loc.coordinate.latitude + delta
+        DispatchQueue.main.async {
+            self.nearbyGasStations = []
+        }
         
-        guard let url = URL(string: "https://nominatim.openstreetmap.org/search?format=json&q=x%C4%83ng&viewbox=\(minLon),\(maxLat),\(maxLon),\(minLat)&bounded=1&limit=15&accept-language=vi") else { return }
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = "Cây xăng"
+        if #available(iOS 13.0, *) {
+            request.pointOfInterestFilter = MKPointOfInterestFilter(including: [.gasStation])
+        }
+        request.region = MKCoordinateRegion(center: loc.coordinate, latitudinalMeters: 12000, longitudinalMeters: 12000)
         
-        var request = URLRequest(url: url)
-        request.setValue("NConnect-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
-        
-        networkSession.dataTask(with: request) { [weak self] data, _, error in
+        let search = MKLocalSearch(request: request)
+        search.start { [weak self] response, error in
             guard let self = self else { return }
-            if let data = data, let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-                var stations: [SavedLocation] = []
-                for item in jsonArray {
-                    guard let latStr = item["lat"] as? String, let lat = Double(latStr),
-                          let lonStr = item["lon"] as? String, let lon = Double(lonStr) else { continue }
-                    
-                    let name = item["name"] as? String ?? "Cây xăng Petrolimex"
-                    let displayName = item["display_name"] as? String ?? "Trạm xăng OpenStreetMap"
-                    let dist = loc.distance(from: CLLocation(latitude: lat, longitude: lon))
-                    let distStr = dist < 1000 ? "Cách \(Int(dist)) m" : String(format: "Cách %.1f km", dist / 1000.0)
-                    
-                    stations.append(SavedLocation(
-                        title: name,
-                        subtitle: "\(distStr) • \(displayName.components(separatedBy: ",").first ?? "")",
-                        latitude: lat,
-                        longitude: lon,
-                        type: .gas
-                    ))
+            
+            let items = response?.mapItems ?? []
+            if items.isEmpty {
+                let req2 = MKLocalSearch.Request()
+                req2.naturalLanguageQuery = "Trạm xăng"
+                req2.region = MKCoordinateRegion(center: loc.coordinate, latitudinalMeters: 12000, longitudinalMeters: 12000)
+                let search2 = MKLocalSearch(request: req2)
+                search2.start { [weak self] resp2, _ in
+                    guard let self = self else { return }
+                    self.processGasStationMapItems(resp2?.mapItems ?? [], center: loc)
                 }
-                
-                DispatchQueue.main.async {
-                    self.nearbyGasStations = stations
-                }
+            } else {
+                self.processGasStationMapItems(items, center: loc)
             }
-        }.resume()
+        }
+    }
+    
+    private func processGasStationMapItems(_ mapItems: [MKMapItem], center: CLLocation) {
+        let sorted = mapItems.sorted { item1, item2 in
+            let d1 = center.distance(from: CLLocation(latitude: item1.placemark.coordinate.latitude, longitude: item1.placemark.coordinate.longitude))
+            let d2 = center.distance(from: CLLocation(latitude: item2.placemark.coordinate.latitude, longitude: item2.placemark.coordinate.longitude))
+            return d1 < d2
+        }
+        
+        var stations: [SavedLocation] = []
+        for item in sorted.prefix(25) {
+            let name = item.name ?? "Trạm xăng"
+            let coord = item.placemark.coordinate
+            let dist = center.distance(from: CLLocation(latitude: coord.latitude, longitude: coord.longitude))
+            let distStr = dist < 1000 ? "Cách \(Int(dist)) m" : String(format: "Cách %.1f km", dist / 1000.0)
+            let addr = item.placemark.title ?? item.placemark.thoroughfare ?? ""
+            
+            stations.append(SavedLocation(
+                title: name,
+                subtitle: "\(distStr) • \(addr)",
+                latitude: coord.latitude,
+                longitude: coord.longitude,
+                type: .gas
+            ))
+        }
+        
+        DispatchQueue.main.async {
+            self.nearbyGasStations = stations
+        }
     }
     
     // MARK: - Lập lộ trình chỉ đường bằng Valhalla Routing Engine (Tối ưu xe máy, TRÁNH CAO TỐC & PHÍ, GỢI Ý TUYẾN THAY THẾ)
@@ -451,6 +486,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
         self.alternativeRoutes = allCalculatedRoutes.filter { $0.id != targetRoute.id }
         self.routeSteps = targetRoute.steps
         self.currentStepIndex = 0
+        self.minDistanceToCurrentStep = Double.greatestFiniteMagnitude
         self.arrivalMessage = nil
         
         if let loc = currentLocation {
@@ -480,6 +516,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
         self.activeRoute = route
         self.routeSteps = route.steps
         self.currentStepIndex = 0
+        self.minDistanceToCurrentStep = Double.greatestFiniteMagnitude
         self.arrivalMessage = nil
         self.enableBackgroundUpdatesIfPossible()
         self.isNavigating = autoStart
@@ -969,6 +1006,7 @@ public final class NavigationEngine: NSObject, ObservableObject {
         allCalculatedRoutes.removeAll()
         routeSteps.removeAll()
         currentStepIndex = 0
+        minDistanceToCurrentStep = Double.greatestFiniteMagnitude
         lastSpokenStepIndex = -1
         hasSpoken300mAlert = false
         hasSpoken100mAlert = false
@@ -1075,60 +1113,48 @@ public final class NavigationEngine: NSObject, ObservableObject {
         return roadName.isEmpty ? "Đi thẳng" : "Đi thẳng trên \(roadName)"
     }
     
-    // MARK: - Xác định tên con đường xe đang chạy thực tế bằng OpenStreetMap Reverse Geocoding
+    // MARK: - Xác định tên con đường xe đang chạy thực tế bằng Apple CoreLocation Geocoder
     private func checkCurrentRoadName(at loc: CLLocation) {
-        if isNavigating && currentStepIndex < routeSteps.count {
-            let step = routeSteps[currentStepIndex]
-            let road = step.roadName.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !road.isEmpty && road != currentRoadName {
-                self.currentRoadName = road
-                self.currentInstruction.currentRoadName = road
-                self.onRoadNameChanged?(road)
+        // 1. Khi đang dẫn đường, nếu currentRoadName còn rỗng thì khởi tạo từ bước đường hiện tại
+        if isNavigating {
+            let fallbackRoad = currentStepRoadName
+            if self.currentRoadName.isEmpty && !fallbackRoad.isEmpty {
+                self.currentRoadName = fallbackRoad
+                self.currentInstruction.currentRoadName = fallbackRoad
+                self.onRoadNameChanged?(fallbackRoad)
             }
-            return
         }
         
+        // 2. Throttling cho Apple CLGeocoder: tối thiểu cách điểm cũ 20m và cách lần gọi trước 3.5 giây
         let now = Date()
         let dist = lastGeocodedLocation != nil ? loc.distance(from: lastGeocodedLocation!) : 999.0
-        guard (dist > 30.0 || lastGeocodedLocation == nil) && now.timeIntervalSince(lastGeocodeTime) > 6.0 && !isGeocoding else { return }
+        guard (dist > 20.0 || lastGeocodedLocation == nil) && now.timeIntervalSince(lastGeocodeTime) > 3.5 && !isGeocoding else { return }
         
         isGeocoding = true
         lastGeocodedLocation = loc
         lastGeocodeTime = now
         
-        let urlStr = "https://nominatim.openstreetmap.org/reverse?lat=\(loc.coordinate.latitude)&lon=\(loc.coordinate.longitude)&format=json&addressdetails=1&accept-language=vi"
-        guard let url = URL(string: urlStr) else {
-            self.isGeocoding = false
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.setValue("NConnect-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
-        
-        networkSession.dataTask(with: request) { [weak self] data, _, _ in
+        geocoder.reverseGeocodeLocation(loc) { [weak self] placemarks, error in
             guard let self = self else { return }
             self.isGeocoding = false
             
-            guard let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let address = json["address"] as? [String: Any] else { return }
+            guard let placemark = placemarks?.first, error == nil else { return }
             
-            let road = address["road"] as? String
-                ?? address["pedestrian"] as? String
-                ?? address["suburb"] as? String
-                ?? address["neighbourhood"] as? String
-                ?? address["city_district"] as? String
-                ?? ""
+            var street = placemark.thoroughfare ?? placemark.name ?? placemark.subLocality ?? ""
+            street = street.trimmingCharacters(in: .whitespacesAndNewlines)
             
-            let trimmed = road.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty && trimmed != self.currentRoadName {
+            if let thoroughfare = placemark.thoroughfare, !thoroughfare.isEmpty {
+                street = thoroughfare
+            }
+            
+            if !street.isEmpty && street != self.currentRoadName {
                 DispatchQueue.main.async {
-                    self.currentRoadName = trimmed
-                    self.currentInstruction.currentRoadName = trimmed
-                    self.onRoadNameChanged?(trimmed)
+                    self.currentRoadName = street
+                    self.currentInstruction.currentRoadName = street
+                    self.onRoadNameChanged?(street)
                 }
             }
-        }.resume()
+        }
     }
 }
 
@@ -1189,25 +1215,36 @@ extension NavigationEngine: CLLocationManagerDelegate {
                 }
             }
             
-            // Ngưỡng chuyển bước thích ứng theo tốc độ (High-Speed Adaptive Turn Threshold):
-            // Ở tốc độ cao (60 - 100+ km/h), xe di chuyển 17 - 28 mét/giây.
-            // Ngưỡng được mở rộng theo vận tốc để GPS 1Hz không bao giờ bị nhảy cóc qua ngã rẽ.
+            // Quản lý khoảng cách tiếp cận ngã rẽ (Turn Advancement State Machine)
+            if dist < minDistanceToCurrentStep {
+                minDistanceToCurrentStep = dist
+            }
+            
             let speedMps = max(0.0, loc.speed)
-            let dynamicThreshold = max(28.0, speedMps * 2.2) // 40km/h: ~28m, 60km/h: ~37m, 90km/h: ~55m
+            var shouldAdvance = false
             
-            var shouldAdvance = dist < dynamicThreshold
-            
-            // Nếu xe đã vượt qua ngã rẽ hiện tại và đang tiến gần hơn tới ngã rẽ tiếp theo (i+1)
-            if !shouldAdvance && (currentStepIndex + 1) < routeSteps.count {
-                let nextTarget = routeSteps[currentStepIndex + 1].coordinate
-                let nextDist = loc.distance(from: CLLocation(latitude: nextTarget.latitude, longitude: nextTarget.longitude))
-                if nextDist < dist && dist < 90.0 {
+            if speedMps < 2.2 {
+                // Khi xe dừng chờ đèn đỏ hoặc bò rất chậm (< 8 km/h):
+                // TUYỆT ĐỐI KHÔNG nhảy cóc sang ngã rẽ tiếp theo trừ khi xe đã tiến sát mốc ngã rẽ (dưới 7m)
+                if dist <= 7.0 {
+                    shouldAdvance = true
+                }
+            } else {
+                // Khi xe đang di chuyển thực sự (>= 8 km/h):
+                // 1. Xe đã lọt vào ngã rẽ (dưới 12m)
+                // 2. Xe đã vượt qua đỉnh cua và đang chạy xa dần trên con đường mới (dist tăng ít nhất 4m so với điểm gần nhất)
+                if dist <= 12.0 {
+                    shouldAdvance = true
+                } else if minDistanceToCurrentStep < 25.0 && (dist - minDistanceToCurrentStep) >= 4.0 {
+                    shouldAdvance = true
+                } else if speedMps >= 11.0 && dist <= min(32.0, speedMps * 1.6) && (dist - minDistanceToCurrentStep) >= 2.0 {
                     shouldAdvance = true
                 }
             }
             
             if shouldAdvance {
                 currentStepIndex += 1
+                minDistanceToCurrentStep = Double.greatestFiniteMagnitude
                 updateCurrentInstruction()
             }
             

@@ -65,21 +65,43 @@ public final class SavedPlacesManager: ObservableObject {
         loadFromDefaults()
     }
     
-    // MARK: - Tải dữ liệu từ UserDefaults
+    // MARK: - Tải dữ liệu từ UserDefaults (Tự động đồng bộ cả nconnect_* và saved_*)
     private func loadFromDefaults() {
+        let decoder = JSONDecoder()
+        
+        // 1. Tải địa chỉ Nhà (Home)
         if let homeData = UserDefaults.standard.data(forKey: homeKey),
-           let place = try? JSONDecoder().decode(SavedPlace.self, from: homeData) {
+           let place = try? decoder.decode(SavedPlace.self, from: homeData) {
             self.homePlace = place
+        } else if let legacyData = UserDefaults.standard.data(forKey: "nconnect_home_location"),
+                  let loc = try? decoder.decode(SavedLocation.self, from: legacyData) {
+            let place = SavedPlace(name: loc.title, address: loc.subtitle, latitude: loc.latitude, longitude: loc.longitude)
+            self.homePlace = place
+            saveToDefaults(place, key: homeKey)
         }
         
+        // 2. Tải địa chỉ Nơi làm việc (Work)
         if let workData = UserDefaults.standard.data(forKey: workKey),
-           let place = try? JSONDecoder().decode(SavedPlace.self, from: workData) {
+           let place = try? decoder.decode(SavedPlace.self, from: workData) {
             self.workPlace = place
+        } else if let legacyData = UserDefaults.standard.data(forKey: "nconnect_work_location"),
+                  let loc = try? decoder.decode(SavedLocation.self, from: legacyData) {
+            let place = SavedPlace(name: loc.title, address: loc.subtitle, latitude: loc.latitude, longitude: loc.longitude)
+            self.workPlace = place
+            saveToDefaults(place, key: workKey)
         }
         
+        // 3. Tải danh sách Yêu thích (Favorites)
         if let favData = UserDefaults.standard.data(forKey: favoritesKey),
-           let places = try? JSONDecoder().decode([SavedPlace].self, from: favData) {
+           let places = try? decoder.decode([SavedPlace].self, from: favData), !places.isEmpty {
             self.favoritePlaces = places
+        } else if let legacyData = UserDefaults.standard.data(forKey: "nconnect_favorite_locations"),
+                  let list = try? decoder.decode([SavedLocation].self, from: legacyData), !list.isEmpty {
+            let places = list.map {
+                SavedPlace(name: $0.title, address: $0.subtitle, latitude: $0.latitude, longitude: $0.longitude)
+            }
+            self.favoritePlaces = places
+            saveArrayToDefaults(places, key: favoritesKey)
         }
     }
     
@@ -101,8 +123,8 @@ public final class SavedPlacesManager: ObservableObject {
     
     // MARK: - Đồng bộ trạng thái Menu Home / Work lên màn hình xe qua Service 10 & 11
     public func notifyMenuCapabilitiesChanged() {
-        let hasHome = homePlace != nil
-        let hasWork = workPlace != nil
+        let hasHome = homePlace != nil || UserDefaults.standard.data(forKey: "nconnect_home_location") != nil
+        let hasWork = workPlace != nil || UserDefaults.standard.data(forKey: "nconnect_work_location") != nil
         YamahaCCUManager.shared?.updateMenuCapabilities(hasHome: hasHome, hasWork: hasWork)
     }
     
@@ -110,20 +132,30 @@ public final class SavedPlacesManager: ObservableObject {
     public func setHome(name: String, address: String = "", coordinate: CLLocationCoordinate2D) {
         let p = SavedPlace(name: name.isEmpty ? "Nhà" : name, address: address, coordinate: coordinate)
         self.homePlace = p
+        let loc = SavedLocation(title: p.name, subtitle: p.address, latitude: p.latitude, longitude: p.longitude, type: .home)
+        if let data = try? JSONEncoder().encode(loc) {
+            UserDefaults.standard.set(data, forKey: "nconnect_home_location")
+        }
     }
     
     public func clearHome() {
         self.homePlace = nil
+        UserDefaults.standard.removeObject(forKey: "nconnect_home_location")
     }
     
     // MARK: - Thiết lập Nơi làm việc (Work)
     public func setWork(name: String, address: String = "", coordinate: CLLocationCoordinate2D) {
         let p = SavedPlace(name: name.isEmpty ? "Chỗ làm" : name, address: address, coordinate: coordinate)
         self.workPlace = p
+        let loc = SavedLocation(title: p.name, subtitle: p.address, latitude: p.latitude, longitude: p.longitude, type: .work)
+        if let data = try? JSONEncoder().encode(loc) {
+            UserDefaults.standard.set(data, forKey: "nconnect_work_location")
+        }
     }
     
     public func clearWork() {
         self.workPlace = nil
+        UserDefaults.standard.removeObject(forKey: "nconnect_work_location")
     }
     
     // MARK: - Thêm / Xoá mục Yêu thích (Favorites)

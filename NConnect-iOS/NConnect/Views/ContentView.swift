@@ -64,9 +64,11 @@ public struct ContentView: View {
             }
             ccuManager.onGoHome = { [weak navEngine, weak ccuManager] in
                 guard let nav = navEngine else { return }
-                if let home = SavedPlacesManager.shared.homePlace {
-                    ccuManager?.log("🏍️ Menu xe: Bắt đầu dẫn đường VỀ NHÀ -> \(home.name)")
-                    nav.calculateRoute(to: home.coordinate, destinationTitle: home.name)
+                let homeCoord = SavedPlacesManager.shared.homePlace?.coordinate ?? nav.homeLocation?.coordinate
+                let homeTitle = SavedPlacesManager.shared.homePlace?.name ?? nav.homeLocation?.title ?? "Nhà"
+                if let coord = homeCoord {
+                    ccuManager?.log("🏍️ Menu xe: Bắt đầu dẫn đường VỀ NHÀ -> \(homeTitle)")
+                    nav.calculateRoute(to: coord, destinationTitle: homeTitle)
                 } else {
                     ccuManager?.log("⚠️ Menu xe: Chưa cài đặt địa chỉ Nhà")
                     AppNotificationManager.shared.postNotification(
@@ -78,9 +80,11 @@ public struct ContentView: View {
             }
             ccuManager.onGoToWork = { [weak navEngine, weak ccuManager] in
                 guard let nav = navEngine else { return }
-                if let work = SavedPlacesManager.shared.workPlace {
-                    ccuManager?.log("🏍️ Menu xe: Bắt đầu dẫn đường ĐI LÀM -> \(work.name)")
-                    nav.calculateRoute(to: work.coordinate, destinationTitle: work.name)
+                let workCoord = SavedPlacesManager.shared.workPlace?.coordinate ?? nav.workLocation?.coordinate
+                let workTitle = SavedPlacesManager.shared.workPlace?.name ?? nav.workLocation?.title ?? "Chỗ làm"
+                if let coord = workCoord {
+                    ccuManager?.log("🏍️ Menu xe: Bắt đầu dẫn đường ĐI LÀM -> \(workTitle)")
+                    nav.calculateRoute(to: coord, destinationTitle: workTitle)
                 } else {
                     ccuManager?.log("⚠️ Menu xe: Chưa cài đặt địa chỉ Nơi làm việc")
                     AppNotificationManager.shared.postNotification(
@@ -107,9 +111,11 @@ public struct ContentView: View {
             }
             ccuManager.onOpenFavorites = { [weak navEngine, weak ccuManager] in
                 guard let nav = navEngine else { return }
-                if let fav = SavedPlacesManager.shared.favoritePlaces.first {
-                    ccuManager?.log("⭐ Menu xe: Dẫn đường tới mục Yêu thích -> \(fav.name)")
-                    nav.calculateRoute(to: fav.coordinate, destinationTitle: fav.name)
+                let favCoord = SavedPlacesManager.shared.favoritePlaces.first?.coordinate ?? nav.favoriteLocations.first?.coordinate
+                let favTitle = SavedPlacesManager.shared.favoritePlaces.first?.name ?? nav.favoriteLocations.first?.title ?? "Mục yêu thích"
+                if let coord = favCoord {
+                    ccuManager?.log("⭐ Menu xe: Dẫn đường tới mục Yêu thích -> \(favTitle)")
+                    nav.calculateRoute(to: coord, destinationTitle: favTitle)
                 } else {
                     ccuManager?.log("⚠️ Menu xe: Chưa lưu địa điểm Yêu thích nào")
                     AppNotificationManager.shared.postNotification(
@@ -127,11 +133,15 @@ public struct ContentView: View {
                         let place = favs[index]
                         ccuManager?.log("⭐ Menu xe: Chọn mục yêu thích #\(index): \(place.name)")
                         nav.calculateRoute(to: place.coordinate, destinationTitle: place.name)
+                    } else if index >= 0 && index < nav.favoriteLocations.count {
+                        let loc = nav.favoriteLocations[index]
+                        ccuManager?.log("⭐ Menu xe: Chọn mục yêu thích #\(index): \(loc.title)")
+                        nav.calculateRoute(to: loc.coordinate, destinationTitle: loc.title)
                     }
                 }
             }
             streamRenderer.ccuManager = ccuManager
-            let initRoad = navEngine.currentRoadName.isEmpty ? navEngine.currentInstruction.nextRoadName : navEngine.currentRoadName
+            let initRoad = !navEngine.currentRoadName.isEmpty ? navEngine.currentRoadName : (!navEngine.currentStepRoadName.isEmpty ? navEngine.currentStepRoadName : "Yamaha NMAX")
             if !initRoad.isEmpty {
                 var initEta = ""
                 if navEngine.isNavigating && (!navEngine.currentInstruction.etaString.isEmpty || navEngine.currentInstruction.totalTimeRemainingSeconds > 0) {

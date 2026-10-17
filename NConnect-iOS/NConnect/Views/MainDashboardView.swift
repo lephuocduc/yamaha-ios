@@ -1036,7 +1036,7 @@ public struct MainDashboardView: View {
                 if navEngine.nearbyGasStations.isEmpty {
                     VStack(spacing: 12) {
                         ProgressView()
-                        Text("Đang quét trạm xăng OpenStreetMap gần bạn...")
+                        Text("Đang tìm kiếm cây xăng gần bạn qua Apple Maps...")
                             .font(.caption)
                             .foregroundColor(.gray)
                     }

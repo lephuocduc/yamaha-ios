@@ -371,8 +371,8 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     // Gói tin Service 4 nạp tên đường footer ban đầu (icon 1 = mũi tên thẳng)
                     let s4Init: [UInt8] = [1, 0, 0, 0, 0, 1, UInt8(roadBytes.count), 0x6D] + roadBytes
                     
-                    let hasHome = SavedPlacesManager.shared.homePlace != nil
-                    let hasWork = SavedPlacesManager.shared.workPlace != nil
+                    let hasHome = (SavedPlacesManager.shared.homePlace != nil) || (UserDefaults.standard.data(forKey: "nconnect_home_location") != nil)
+                    let hasWork = (SavedPlacesManager.shared.workPlace != nil) || (UserDefaults.standard.data(forKey: "nconnect_work_location") != nil)
                     let setup: [(UInt8, UInt8, [UInt8])] = [
                         (2, 0, [1, 0]),
                         (31, 0, [1, 0]),
@@ -398,13 +398,6 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                         self.streetCross.displaySpec.isReadyForStreaming = true
                         self.onBikeConnectedSuccessfully()
                         self.log("🎉 BẮT TAY NAVILITE THÀNH CÔNG! Màn hình TFT đã sẵn sàng nhận hình ảnh bản đồ!")
-                    }
-                    
-                case 55:
-                    log("Menu xe: Bắt đầu nhận hình (55)")
-                    DispatchQueue.main.async {
-                        self.state = .streaming
-                        self.streetCross.displaySpec.isReadyForStreaming = true
                     }
                     
                 case 56:
