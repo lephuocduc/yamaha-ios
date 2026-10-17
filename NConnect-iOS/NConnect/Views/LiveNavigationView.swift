@@ -84,7 +84,7 @@ public struct LiveNavigationView: View {
                 trackingMode: $trackingMode,
                 orientationMode: orientationMode,
                 route: navEngine.activeRoute,
-                coordA: effectivePointACoordinate,
+                coordA: pointA?.coordinate,
                 coordB: pointB?.coordinate,
                 droppedPinCoord: droppedPinCoordinate,
                 onLocationLongPressed: { coord in
@@ -781,7 +781,12 @@ public struct LiveNavigationView: View {
     }
     
     private func startNavigation() {
-        navEngine.startActiveNavigation()
+        if pointA != nil, let curLoc = navEngine.currentLocation, let dest = pointB {
+            pointA = nil
+            navEngine.calculateRoute(from: curLoc.coordinate, to: dest.coordinate, autoStart: true)
+        } else {
+            navEngine.startActiveNavigation()
+        }
         ccuManager.startStreaming()
         trackingMode = .follow
         orientationMode = .headingTracking
@@ -789,6 +794,7 @@ public struct LiveNavigationView: View {
     }
     
     private func clearRoute() {
+        pointA = nil
         pointB = nil
         navEngine.stopNavigation()
     }
@@ -900,6 +906,13 @@ public class CustomOSMTileOverlay: MKTileOverlay {
             return
         }
         
+        // Kiểm tra bộ nhớ đệm ổ đĩa dùng chung với OSMTileEngine (chia sẻ cache offline giữa iPhone và xe máy)
+        if let diskData = OSMTileEngine.shared.getCachedTileData(x: path.x, y: path.y, z: path.z) {
+            memoryCache.setObject(diskData as NSData, forKey: key)
+            result(diskData, nil)
+            return
+        }
+        
         let primaryUrlStr = "https://tile.openstreetmap.de/\(path.z)/\(path.x)/\(path.y).png"
         let fallbackUrlStr = "https://maps.wikimedia.org/osm-intl/\(path.z)/\(path.x)/\(path.y).png"
         
@@ -916,6 +929,7 @@ public class CustomOSMTileOverlay: MKTileOverlay {
             guard let self = self else { return }
             if let data = data, (response as? HTTPURLResponse)?.statusCode == 200, data.count > 1000 {
                 self.memoryCache.setObject(data as NSData, forKey: key)
+                OSMTileEngine.shared.saveTileData(data, x: path.x, y: path.y, z: path.z)
                 result(data, nil)
             } else if let fallbackUrl = URL(string: fallbackUrlStr) {
                 var req2 = URLRequest(url: fallbackUrl)
@@ -924,6 +938,7 @@ public class CustomOSMTileOverlay: MKTileOverlay {
                 self.session.dataTask(with: req2) { [weak self] d2, r2, e2 in
                     if let d2 = d2, (r2 as? HTTPURLResponse)?.statusCode == 200, d2.count > 1000 {
                         self?.memoryCache.setObject(d2 as NSData, forKey: key)
+                        OSMTileEngine.shared.saveTileData(d2, x: path.x, y: path.y, z: path.z)
                         result(d2, nil)
                     } else {
                         result(nil, error ?? e2)
@@ -1202,10 +1217,13 @@ public struct OSMMapView: UIViewRepresentable {
                 mapView.addAnnotation(annB)
             }
             
-            // Tự động căn chỉnh toàn bộ lộ trình vừa khít màn hình giống Google Maps
-            let rect = polyline.boundingMapRect
-            let padding = UIEdgeInsets(top: 160, left: 50, bottom: 220, right: 50)
-            mapView.setVisibleMapRect(rect, edgePadding: padding, animated: true)
+            // Chỉ tự động căn chỉnh toàn bộ lộ trình vừa khít màn hình khi đang xem trước lộ trình
+            // Khi đang lái xe dẫn đường thực tế (isNavigating == true), camera giữ nguyên chế độ bám theo xe (Heading Tracking)
+            if !self.parent.navEngine.isNavigating {
+                let rect = polyline.boundingMapRect
+                let padding = UIEdgeInsets(top: 160, left: 50, bottom: 220, right: 50)
+                mapView.setVisibleMapRect(rect, edgePadding: padding, animated: true)
+            }
         }
     }
 }

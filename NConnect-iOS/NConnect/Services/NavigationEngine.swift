@@ -492,12 +492,12 @@ public final class NavigationEngine: NSObject, ObservableObject {
                                 .trimmingCharacters(in: CharacterSet(charactersIn: " .,")) ?? ""
                         }
                     }
+                    let direction = self.mapValhallaToDirection(type: type)
                     if roadName.isEmpty {
-                        roadName = "Đoạn đường tiếp theo"
+                        roadName = (direction == .destination) ? "Điểm đến" : "Đoạn đường tiếp theo"
                     }
                     
                     let stepCoord = (beginIdx < coordinates.count) ? coordinates[beginIdx] : (coordinates.first ?? start)
-                    let direction = self.mapValhallaToDirection(type: type)
                     let finalInstruction = rawInstruction.isEmpty ? direction.descriptionVi : rawInstruction
                     
                     steps.append(NavigationStep(
@@ -606,8 +606,10 @@ public final class NavigationEngine: NSObject, ObservableObject {
                 guard index < count else { break }
                 let b = Int64(bytes[index]) - 63
                 index += 1
-                result |= (b & 0x1f) << shift
-                shift += 5
+                if shift < 60 {
+                    result |= (b & 0x1f) << shift
+                    shift += 5
+                }
                 if b < 0x20 {
                     break
                 }
@@ -621,8 +623,10 @@ public final class NavigationEngine: NSObject, ObservableObject {
                 guard index < count else { break }
                 let b = Int64(bytes[index]) - 63
                 index += 1
-                result |= (b & 0x1f) << shift
-                shift += 5
+                if shift < 60 {
+                    result |= (b & 0x1f) << shift
+                    shift += 5
+                }
                 if b < 0x20 {
                     break
                 }
@@ -840,7 +844,7 @@ extension NavigationEngine: CLLocationManagerDelegate {
             let dist = loc.distance(from: CLLocation(latitude: target.latitude, longitude: target.longitude))
             
             // Cập nhật khoảng cách còn lại tới ngã rẽ
-            if dist > 0 && dist < 5000 {
+            if dist > 0 && dist < 100_000 {
                 currentInstruction.distanceMeters = Int(dist)
             }
             

@@ -30,16 +30,31 @@ public final class OSMTileEngine {
     }
     
     public func getCachedTile(x: Int, y: Int, z: Int) -> UIImage? {
-        let key = "\(z)_\(x)_\(y)" as NSString
-        if let cached = memoryCache.object(forKey: key) {
-            return cached
-        }
-        let fileURL = cacheDirectory.appendingPathComponent("\(z)_\(x)_\(y).png")
-        if let data = try? Data(contentsOf: fileURL), data.count > 1000, let img = UIImage(data: data) {
-            memoryCache.setObject(img, forKey: key)
-            return img
+        if let data = getCachedTileData(x: x, y: y, z: z) {
+            let key = "\(z)_\(x)_\(y)" as NSString
+            if let img = UIImage(data: data) {
+                memoryCache.setObject(img, forKey: key)
+                return img
+            }
         }
         return nil
+    }
+    
+    public func getCachedTileData(x: Int, y: Int, z: Int) -> Data? {
+        let key = "\(z)_\(x)_\(y)" as NSString
+        if let cached = memoryCache.object(forKey: key), let png = cached.pngData() {
+            return png
+        }
+        let fileURL = cacheDirectory.appendingPathComponent("\(z)_\(x)_\(y).png")
+        if let data = try? Data(contentsOf: fileURL), data.count > 1000 {
+            return data
+        }
+        return nil
+    }
+    
+    public func saveTileData(_ data: Data, x: Int, y: Int, z: Int) {
+        let fileURL = cacheDirectory.appendingPathComponent("\(z)_\(x)_\(y).png")
+        try? data.write(to: fileURL)
     }
     
     public func fetchTile(x: Int, y: Int, z: Int, completion: @escaping (UIImage?) -> Void) {
@@ -296,15 +311,13 @@ public final class TFTStreamRenderer: ObservableObject {
             }
         }
         
-        // Ngăn chặn render chồng chéo gây tràn CPU
-        guard !isRenderingFrame else {
-            completion(nil)
-            return
-        }
-        isRenderingFrame = true
-        
         renderQueue.async { [weak self] in
             guard let self = self else { return }
+            guard !self.isRenderingFrame else {
+                completion(nil)
+                return
+            }
+            self.isRenderingFrame = true
             defer { self.isRenderingFrame = false }
             
             guard let loc = location else {
@@ -321,7 +334,7 @@ public final class TFTStreamRenderer: ObservableObject {
             let zoom = self.currentOsmZoom
             let n = pow(2.0, Double(zoom))
             let lon = loc.coordinate.longitude
-            let lat = loc.coordinate.latitude
+            let lat = max(-85.0511, min(85.0511, loc.coordinate.latitude))
             
             let worldX = (lon + 180.0) / 360.0 * n * 256.0
             let latRad = lat * .pi / 180.0
@@ -423,7 +436,8 @@ public final class TFTStreamRenderer: ObservableObject {
         
         for coord in route.coordinates {
             let ptWorldX = (coord.longitude + 180.0) / 360.0 * n * 256.0
-            let ptLatRad = coord.latitude * .pi / 180.0
+            let safeLat = max(-85.0511, min(85.0511, coord.latitude))
+            let ptLatRad = safeLat * .pi / 180.0
             let ptWorldY = (1.0 - log(tan(ptLatRad) + 1.0 / cos(ptLatRad)) / .pi) / 2.0 * n * 256.0
             
             let px = CGFloat(ptWorldX - originX)
@@ -572,14 +586,18 @@ public final class TFTStreamRenderer: ObservableObject {
             arrowImage.draw(in: CGRect(x: 16, y: 9, width: 28, height: 28))
         }
         
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineBreakMode = .byTruncatingTail
+        
         let navText = NSMutableAttributedString()
         
         // 1. Khoảng cách còn lại (ví dụ 45m, 1.2km)
         navText.append(NSAttributedString(
             string: instruction.formattedDistance + " ",
             attributes: [
-                .font: UIFont.systemFont(ofSize: 23, weight: .heavy),
-                .foregroundColor: UIColor(red: 0.1, green: 0.95, blue: 0.4, alpha: 1.0)
+                .font: UIFont.systemFont(ofSize: 22, weight: .heavy),
+                .foregroundColor: UIColor(red: 0.1, green: 0.95, blue: 0.4, alpha: 1.0),
+                .paragraphStyle: paragraphStyle
             ]
         ))
         
@@ -588,7 +606,8 @@ public final class TFTStreamRenderer: ObservableObject {
             string: "• ",
             attributes: [
                 .font: UIFont.systemFont(ofSize: 18, weight: .bold),
-                .foregroundColor: UIColor(white: 0.6, alpha: 1.0)
+                .foregroundColor: UIColor(white: 0.6, alpha: 1.0),
+                .paragraphStyle: paragraphStyle
             ]
         ))
         
@@ -597,12 +616,14 @@ public final class TFTStreamRenderer: ObservableObject {
         navText.append(NSAttributedString(
             string: roadName,
             attributes: [
-                .font: UIFont.systemFont(ofSize: 20, weight: .bold),
-                .foregroundColor: UIColor.white
+                .font: UIFont.systemFont(ofSize: 19, weight: .bold),
+                .foregroundColor: UIColor.white,
+                .paragraphStyle: paragraphStyle
             ]
         ))
         
-        navText.draw(at: CGPoint(x: 52, y: 10))
+        let textRect = CGRect(x: 52, y: 9, width: size.width - 66, height: 32)
+        navText.draw(in: textRect)
     }
     
     // MARK: - Nhãn bản quyền OpenStreetMap
