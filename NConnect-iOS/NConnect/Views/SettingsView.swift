@@ -29,6 +29,7 @@ public struct SettingsView: View {
     
     @ObservedObject private var notificationManager = AppNotificationManager.shared
     @ObservedObject private var callManager = CallNotificationManager.shared
+    @ObservedObject private var savedPlaces = SavedPlacesManager.shared
     @State private var showShortcutsGuide = false
     
     public init(ccuManager: YamahaCCUManager) {
@@ -363,11 +364,133 @@ public struct SettingsView: View {
                     .padding(.vertical, 4)
                 }
                 
+                Section(header: Text("Địa điểm trên Menu xe máy (Home, Work, Gas, Fav)")) {
+                    // 1. NHÀ (Go home - Mã 53)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Image(systemName: "house.fill")
+                                .foregroundColor(.orange)
+                            Text("Địa chỉ Nhà (Go home)")
+                                .fontWeight(.semibold)
+                            Spacer()
+                            if savedPlaces.homePlace != nil {
+                                Text("Đã lưu")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.green)
+                            } else {
+                                Text("Chưa cài")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                        }
+                        
+                        if let home = savedPlaces.homePlace {
+                            Text("\(home.name): \(String(format: "%.4f", home.latitude)), \(String(format: "%.4f", home.longitude))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            Button(action: {
+                                savedPlaces.clearHome()
+                            }) {
+                                Text("Xoá địa chỉ Nhà")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(BorderlessButtonStyle())
+                        } else {
+                            Button(action: {
+                                if let loc = CLLocationManager().location?.coordinate {
+                                    savedPlaces.setHome(name: "Nhà riêng", coordinate: loc)
+                                } else {
+                                    savedPlaces.setHome(name: "Nhà riêng", coordinate: CLLocationCoordinate2D(latitude: 10.7769, longitude: 106.7009))
+                                }
+                            }) {
+                                HStack {
+                                    Image(systemName: "location.fill")
+                                    Text("Lấy vị trí GPS hiện tại làm Nhà")
+                                }
+                                .font(.subheadline)
+                                .foregroundColor(.blue)
+                            }
+                            .buttonStyle(BorderlessButtonStyle())
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    
+                    // 2. NƠI LÀM VIỆC (Go to work - Mã 54)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Image(systemName: "briefcase.fill")
+                                .foregroundColor(.blue)
+                            Text("Nơi làm việc (Go to work)")
+                                .fontWeight(.semibold)
+                            Spacer()
+                            if savedPlaces.workPlace != nil {
+                                Text("Đã lưu")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.green)
+                            } else {
+                                Text("Chưa cài")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                        }
+                        
+                        if let work = savedPlaces.workPlace {
+                            Text("\(work.name): \(String(format: "%.4f", work.latitude)), \(String(format: "%.4f", work.longitude))")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            Button(action: {
+                                savedPlaces.clearWork()
+                            }) {
+                                Text("Xoá nơi làm việc")
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(BorderlessButtonStyle())
+                        } else {
+                            Button(action: {
+                                if let loc = CLLocationManager().location?.coordinate {
+                                    savedPlaces.setWork(name: "Công ty", coordinate: loc)
+                                } else {
+                                    savedPlaces.setWork(name: "Công ty", coordinate: CLLocationCoordinate2D(latitude: 10.7769, longitude: 106.7009))
+                                }
+                            }) {
+                                HStack {
+                                    Image(systemName: "location.fill")
+                                    Text("Lấy vị trí GPS hiện tại làm Chỗ làm")
+                                }
+                                .font(.subheadline)
+                                .foregroundColor(.blue)
+                            }
+                            .buttonStyle(BorderlessButtonStyle())
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    
+                    // 3. CÂY XĂNG GẦN NHẤT (Gas station - Mã 55 sub 4)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Image(systemName: "fuelpump.fill")
+                                .foregroundColor(.green)
+                            Text("Tìm cây xăng gần nhất (Gas station)")
+                                .fontWeight(.semibold)
+                        }
+                        Text("Khi chọn 'Gas station' trên cùm xe, hệ thống sẽ tự động quét trạm xăng gần vị trí xe nhất và bắt đầu dẫn đường tức thì.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+                
                 Section(header: Text("Thông tin ứng dụng")) {
                     HStack {
                         Text("Phiên bản")
                         Spacer()
-                        Text("0.5.17 (Build 43)")
+                        Text("0.5.18 (Build 44)")
                             .foregroundColor(.secondary)
                     }
                     Text("MyNMAX - Dẫn đường và thông báo cho xe máy Yamaha có màn hình TFT.")

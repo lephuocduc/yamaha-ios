@@ -109,10 +109,15 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     @Published public var currentRoadNameOnTFT: String = "MyNMAX"
     public var lastSentRoadName: String = ""
     
-    // Callbacks xử lý nút bấm từ cùm tay lái xe (+ / - / Zoom / Hủy dẫn đường)
+    // Callbacks xử lý nút bấm từ cùm tay lái xe (+ / - / Zoom / Hủy dẫn đường / Menu)
     public var onZoomIn: (() -> Void)?
     public var onZoomOut: (() -> Void)?
     public var onStopRoute: (() -> Void)?
+    public var onGoHome: (() -> Void)?
+    public var onGoToWork: (() -> Void)?
+    public var onFindGasStation: (() -> Void)?
+    public var onOpenFavorites: (() -> Void)?
+    public var onSelectPoi: ((Int, Int) -> Void)?
     
     private var centralManager: CBCentralManager!
     private var currentPeripheral: CBPeripheral?
@@ -162,6 +167,16 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                 }
             case .stopRoute:
                 DispatchQueue.main.async { self?.onStopRoute?() }
+            case .goHome:
+                DispatchQueue.main.async { self?.onGoHome?() }
+            case .goToWork:
+                DispatchQueue.main.async { self?.onGoToWork?() }
+            case .openGasStations:
+                DispatchQueue.main.async { self?.onFindGasStation?() }
+            case .openFavorites:
+                DispatchQueue.main.async { self?.onOpenFavorites?() }
+            case .selectPoiItem(let index, let listId):
+                DispatchQueue.main.async { self?.onSelectPoi?(index, listId) }
             default:
                 break
             }
@@ -347,11 +362,13 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     // Gói tin Service 4 nạp tên đường footer ban đầu (icon 1 = mũi tên thẳng)
                     let s4Init: [UInt8] = [1, 0, 0, 0, 0, 1, UInt8(roadBytes.count), 0x6D] + roadBytes
                     
+                    let hasHome = SavedPlacesManager.shared.homePlace != nil
+                    let hasWork = SavedPlacesManager.shared.workPlace != nil
                     let setup: [(UInt8, UInt8, [UInt8])] = [
                         (2, 0, [1, 0]),
                         (31, 0, [1, 0]),
-                        (10, 0, [0, 0]),
-                        (11, 0, [0, 0]),
+                        (10, 0, [hasHome ? 1 : 0, 0]),  // Service 10: Trạng thái bật/tắt nút 'Go home'
+                        (11, 0, [hasWork ? 1 : 0, 0]),  // Service 11: Trạng thái bật/tắt nút 'Go to work'
                         (13, 0, [1, 0]),
                         (12, 0, [0, 0]),
                         (3, 1, roadBytes),       // Service 3: Gửi trực tiếp chuỗi tên đường (Chuẩn Lo3/c;->f)
@@ -384,7 +401,7 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     log("Menu xe: Tạm dừng nhận hình (56) → Trả 20")
                     writeEAData(NaviLite.frame(6, 20, 0, [0, 0]))
                     
-                case 51, 53, 57:
+                case 51, 57:
                     log("Phím cùm xe: Phóng to (+) / Zoom In (mã svc \(f.svc))")
                     // Phản hồi ACK ngay cho xe để xe mở khóa sự kiện phím tiếp theo (chuẩn Lo3/c;->j(""))
                     writeEAData(NaviLite.frame(6, 14, 1, [0x07, 0x1A, 0x00, 0x00]))
@@ -397,7 +414,7 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                         }
                     }
                     
-                case 52, 54, 58:
+                case 52, 58:
                     log("Phím cùm xe: Thu nhỏ (-) / Zoom Out (mã svc \(f.svc))")
                     // Phản hồi ACK ngay cho xe để xe mở khóa sự kiện phím tiếp theo (chuẩn Lo3/c;->j(""))
                     writeEAData(NaviLite.frame(6, 14, 1, [0x07, 0x1A, 0x00, 0x00]))
@@ -410,10 +427,49 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                         }
                     }
                     
+                case 53:
+                    log("Menu đồng hồ xe: Lệnh 53 (Về nhà / Go home)")
+                    writeEAData(NaviLite.frame(6, 14, 1, [0x07, 0x1A, 0x00, 0x00]))
+                    DispatchQueue.main.async {
+                        self.onGoHome?()
+                    }
+                    
+                case 54:
+                    log("Menu đồng hồ xe: Lệnh 54 (Đi làm / Go to work)")
+                    writeEAData(NaviLite.frame(6, 14, 1, [0x07, 0x1A, 0x00, 0x00]))
+                    DispatchQueue.main.async {
+                        self.onGoToWork?()
+                    }
+                    
                 case 49:
                     log("Phím cùm xe: Dừng lộ trình dẫn đường (49)")
+                    writeEAData(NaviLite.frame(6, 14, 1, [0x07, 0x1A, 0x00, 0x00]))
                     DispatchQueue.main.async {
                         self.onStopRoute?()
+                    }
+                    
+                case 55:
+                    let sub = f.payload.count > 0 ? f.payload[0] : 1
+                    log("Menu đồng hồ xe: Mở danh sách (55, sub \(sub))")
+                    writeEAData(NaviLite.frame(6, 14, 1, [0x07, 0x1A, 0x00, 0x00]))
+                    DispatchQueue.main.async {
+                        if sub == 3 {
+                            self.onOpenFavorites?()
+                        } else if sub == 4 {
+                            self.onFindGasStation?()
+                        } else {
+                            self.state = .streaming
+                            self.streetCross.displaySpec.isReadyForStreaming = true
+                        }
+                    }
+                    
+                case 48:
+                    let itemIndex = f.payload.count > 0 ? Int(f.payload[0]) : 0
+                    let listId = f.payload.count > 1 ? Int(f.payload[1]) : 0
+                    log("Menu đồng hồ xe: Chọn mục \(itemIndex) của danh sách \(listId) (48)")
+                    writeEAData(NaviLite.frame(6, 14, 1, [0x07, 0x1A, 0x00, 0x00]))
+                    DispatchQueue.main.async {
+                        self.onSelectPoi?(itemIndex, listId)
                     }
                     
                 default:
@@ -680,6 +736,14 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         DispatchQueue.main.async {
             self.currentRoadNameOnTFT = ""
         }
+    }
+    
+    // MARK: - Cập nhật trạng thái Menu xe (Nhà / Nơi làm việc) qua Service 10 & 11
+    public func updateMenuCapabilities(hasHome: Bool, hasWork: Bool) {
+        guard isMFiConnected && eaOutput != nil else { return }
+        log("Cập nhật trạng thái Menu xe: Nhà = \(hasHome ? "Bật" : "Tắt"), Chỗ làm = \(hasWork ? "Bật" : "Tắt")")
+        writeEAData(NaviLite.frame(6, 10, 0, [hasHome ? 1 : 0, 0]))
+        writeEAData(NaviLite.frame(6, 11, 0, [hasWork ? 1 : 0, 0]))
     }
     
     public func cleanVietnameseForGarmin(_ str: String) -> String {

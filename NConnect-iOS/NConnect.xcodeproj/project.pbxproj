@@ -19,6 +19,7 @@
 		1010 /* TFTStreamRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2010 /* TFTStreamRenderer.swift */; };
 		1011 /* CallNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2012 /* CallNotificationManager.swift */; };
 		1012 /* AppNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2013 /* AppNotificationManager.swift */; };
+		1013 /* SavedPlacesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2014 /* SavedPlacesManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -35,6 +36,7 @@
 		2010 /* TFTStreamRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TFTStreamRenderer.swift; sourceTree = "<group>"; };
 		2012 /* CallNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallNotificationManager.swift; sourceTree = "<group>"; };
 		2013 /* AppNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppNotificationManager.swift; sourceTree = "<group>"; };
+		2014 /* SavedPlacesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedPlacesManager.swift; sourceTree = "<group>"; };
 		2011 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -105,6 +107,7 @@
 				2010 /* TFTStreamRenderer.swift */,
 				2012 /* CallNotificationManager.swift */,
 				2013 /* AppNotificationManager.swift */,
+				2014 /* SavedPlacesManager.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -196,6 +199,7 @@
 				1010 /* TFTStreamRenderer.swift in Sources */,
 				1011 /* CallNotificationManager.swift in Sources */,
 				1012 /* AppNotificationManager.swift in Sources */,
+				1013 /* SavedPlacesManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

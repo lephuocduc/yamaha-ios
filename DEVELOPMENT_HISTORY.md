@@ -208,6 +208,33 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
 
 ---
 
+### 🔴 TÍNH NĂNG 11: Kích hoạt toàn bộ các nút Menu dẫn đường trên màn hình xe (Stop, Home, Work, Gas station, Favorites)
+* **Vấn đề người dùng báo cáo**:
+  - Trên màn hình TFT xe máy có danh sách menu dẫn đường gồm các nút:
+    `Stop navigation`, `Go home`, `Go to work`, `Gas station`, `Favorites`.
+  - Trước đây chỉ có nút `Stop navigation` hoạt động (mã 49), các nút còn lại bấm vào không có phản hồi hoặc không điều hướng được.
+* **Phát hiện & Giải mã qua Dalvik Bytecode của APK gốc**:
+  - **Lỗi nhầm lẫn mã lệnh nghiêm trọng**:
+    Trong `YamahaCCUManager.swift`, lệnh `53` bị gộp chung vào Zoom In (+) và lệnh `54` bị gộp chung vào Zoom Out (-). Do đó khi người lái chọn `Go home` (53), app lại phóng to bản đồ; khi chọn `Go to work` (54), app lại thu nhỏ bản đồ!
+  - **Mã lệnh chuẩn xác từ vi điều khiển xe Yamaha**:
+    * `49` (`0x31`): Dừng lộ trình dẫn đường (`onStopRoute`).
+    * `53` (`0x35`): Về nhà (`onGoHome`).
+    * `54` (`0x36`): Đi làm (`onGoToWork`).
+    * `55` (`0x37`) với sub-code `4`: Mở danh sách Cây xăng (`onFindGasStation`).
+    * `55` (`0x37`) với sub-code `3`: Mở danh sách Yêu thích (`onOpenFavorites`).
+    * `48` (`0x30`): Chọn mục POI từ danh sách (`onSelectPoi`).
+  - **Đồng bộ khả năng Menu qua Service 10 & 11**:
+    Xe máy chỉ hiển thị sáng nút `Go home` và `Go to work` khi nhận được gói tin khai báo từ điện thoại:
+    * Service 10 (PDT 0): `[1, 0]` nếu đã cài đặt Nhà, `[0, 0]` nếu chưa cài.
+    * Service 11 (PDT 0): `[1, 0]` nếu đã cài đặt Nơi làm việc, `[0, 0]` nếu chưa cài.
+* **Giải pháp hoàn thiện**:
+  1. Xây dựng module `SavedPlacesManager` quản lý toạ độ Nhà, Nơi làm việc, Yêu thích và tự động phát Service 10 / 11 khi có thay đổi.
+  2. Tích hợp giao diện Cài đặt cho phép bấm **"Lấy vị trí GPS hiện tại làm Nhà / Chỗ làm"** chỉ với 1 chạm.
+  3. Khi chọn **`Gas station`** trên xe: Tự động kích hoạt `MKLocalSearch` quét các cây xăng gần xe nhất trong bán kính 6km, chọn trạm xăng gần nhất và lập tức dẫn đường trên màn hình xe mà không cần người lái chạm vào điện thoại.
+  4. Khi chọn **`Go home` / `Go to work`**: Lập tức kích hoạt `NavigationEngine.calculateRoute` dẫn đường trực tiếp về Nhà / Công ty.
+
+---
+
 ## 4. QUY TRÌNH BIÊN DỊCH VÀ PHÁT HÀNH (CI/CD)
 - Dự án sử dụng GitHub Actions workflow (`.github/workflows/build-ios.yml`).
 - Mỗi khi có commit mới được push lên nhánh `main`, hệ thống tự động:

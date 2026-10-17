@@ -61,6 +61,74 @@ public struct ContentView: View {
             ccuManager.onStopRoute = { [weak navEngine] in
                 navEngine?.stopNavigation()
             }
+            ccuManager.onGoHome = { [weak navEngine, weak ccuManager] in
+                guard let nav = navEngine else { return }
+                if let home = SavedPlacesManager.shared.homePlace {
+                    ccuManager?.log("🏍️ Menu xe: Bắt đầu dẫn đường VỀ NHÀ -> \(home.name)")
+                    nav.calculateRoute(to: home.coordinate, destinationTitle: home.name)
+                } else {
+                    ccuManager?.log("⚠️ Menu xe: Chưa cài đặt địa chỉ Nhà")
+                    AppNotificationManager.shared.postNotification(
+                        appName: "NConnect",
+                        sender: "Chưa có địa chỉ Nhà",
+                        message: "Vào Cài đặt để lưu vị trí Nhà của bạn."
+                    )
+                }
+            }
+            ccuManager.onGoToWork = { [weak navEngine, weak ccuManager] in
+                guard let nav = navEngine else { return }
+                if let work = SavedPlacesManager.shared.workPlace {
+                    ccuManager?.log("🏍️ Menu xe: Bắt đầu dẫn đường ĐI LÀM -> \(work.name)")
+                    nav.calculateRoute(to: work.coordinate, destinationTitle: work.name)
+                } else {
+                    ccuManager?.log("⚠️ Menu xe: Chưa cài đặt địa chỉ Nơi làm việc")
+                    AppNotificationManager.shared.postNotification(
+                        appName: "NConnect",
+                        sender: "Chưa có Chỗ làm",
+                        message: "Vào Cài đặt để lưu nơi làm việc của bạn."
+                    )
+                }
+            }
+            ccuManager.onFindGasStation = { [weak navEngine, weak ccuManager] in
+                guard let nav = navEngine else { return }
+                ccuManager?.log("⛽ Menu xe: Đang tìm cây xăng gần nhất...")
+                let center = nav.currentLocation?.coordinate ?? CLLocationCoordinate2D(latitude: 10.7769, longitude: 106.7009)
+                SavedPlacesManager.shared.findNearestGasStation(near: center) { station in
+                    DispatchQueue.main.async {
+                        if let station = station {
+                            ccuManager?.log("⛽ Menu xe: Tìm thấy cây xăng -> \(station.name)")
+                            nav.calculateRoute(to: station.coordinate, destinationTitle: station.name)
+                        } else {
+                            ccuManager?.log("⚠️ Menu xe: Không tìm thấy cây xăng gần đây")
+                        }
+                    }
+                }
+            }
+            ccuManager.onOpenFavorites = { [weak navEngine, weak ccuManager] in
+                guard let nav = navEngine else { return }
+                if let fav = SavedPlacesManager.shared.favoritePlaces.first {
+                    ccuManager?.log("⭐ Menu xe: Dẫn đường tới mục Yêu thích -> \(fav.name)")
+                    nav.calculateRoute(to: fav.coordinate, destinationTitle: fav.name)
+                } else {
+                    ccuManager?.log("⚠️ Menu xe: Chưa lưu địa điểm Yêu thích nào")
+                    AppNotificationManager.shared.postNotification(
+                        appName: "NConnect",
+                        sender: "Mục Yêu thích",
+                        message: "Vào Cài đặt để thêm các địa điểm Yêu thích."
+                    )
+                }
+            }
+            ccuManager.onSelectPoi = { [weak navEngine, weak ccuManager] index, listId in
+                guard let nav = navEngine else { return }
+                if listId == 3 {
+                    let favs = SavedPlacesManager.shared.favoritePlaces
+                    if index >= 0 && index < favs.count {
+                        let place = favs[index]
+                        ccuManager?.log("⭐ Menu xe: Chọn mục yêu thích #\(index): \(place.name)")
+                        nav.calculateRoute(to: place.coordinate, destinationTitle: place.name)
+                    }
+                }
+            }
             streamRenderer.ccuManager = ccuManager
             let initRoad = navEngine.currentRoadName.isEmpty ? navEngine.currentInstruction.nextRoadName : navEngine.currentRoadName
             if !initRoad.isEmpty {

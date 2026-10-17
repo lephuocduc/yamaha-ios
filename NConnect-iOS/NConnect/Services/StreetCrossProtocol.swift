@@ -31,7 +31,11 @@ public final class StreetCrossProtocol {
         case startStreamOrOpenMenu      // Mã 55
         case pauseStreamOrCloseMenu     // Mã 56
         case stopRoute                  // Mã 49
-        case selectPoiItem(index: Int)
+        case goHome                     // Mã 53
+        case goToWork                   // Mã 54
+        case openFavorites              // Mã 55 (sub 3)
+        case openGasStations            // Mã 55 (sub 4)
+        case selectPoiItem(index: Int, listId: Int) // Mã 48
         case unknown(code: UInt8)
     }
     
@@ -105,29 +109,55 @@ public final class StreetCrossProtocol {
     // MARK: - Xử lý lệnh vận hành & phím bấm tay lái
     private func handleOperationalCommands(command: UInt8, bytes: [UInt8]) -> Data? {
         switch command {
-        case 51, 53, 57: // 0x33: Phím (+) / Nút Lên trên cùm tay lái xe
+        case 51, 57: // Phím (+) / Nút Lên trên cùm tay lái xe
             print("[StreetCross] Phím cùm xe: Phóng to (+) / Zoom In (mã \(command))")
             onHandlebarButtonReceived?(.zoomIn)
             return nil
             
-        case 52, 54, 58: // 0x34: Phím (-) / Nút Xuống trên cùm tay lái xe
+        case 52, 58: // Phím (-) / Nút Xuống trên cùm tay lái xe
             print("[StreetCross] Phím cùm xe: Thu nhỏ (-) / Zoom Out (mã \(command))")
             onHandlebarButtonReceived?(.zoomOut)
             return nil
             
-        case 55: // 0x37: Xe yêu cầu bắt đầu nhận hình hoặc mở danh sách
-            print("[StreetCross] Menu đồng hồ: Mở danh sách / Bắt đầu nhận hình (55)")
-            onHandlebarButtonReceived?(.startStreamOrOpenMenu)
+        case 53: // 0x35: Menu xe: Về nhà (Go home)
+            print("[StreetCross] Menu đồng hồ: Lệnh 53 (Về nhà / Go home)")
+            onHandlebarButtonReceived?(.goHome)
             return nil
             
-        case 56: // 0x38: Xe tạm dừng nhận hình → Phản hồi 20 (0x14)
-            print("[StreetCross] Menu đồng hồ: Đóng danh sách / Tạm dừng nhận hình (56) → Trả 20")
-            onHandlebarButtonReceived?(.pauseStreamOrCloseMenu)
-            return Data([0x14, 0x00])
+        case 54: // 0x36: Menu xe: Đi làm (Go to work)
+            print("[StreetCross] Menu đồng hồ: Lệnh 54 (Đi làm / Go to work)")
+            onHandlebarButtonReceived?(.goToWork)
+            return nil
             
         case 49: // 0x31: Dừng lộ trình dẫn đường từ nút tay lái
             print("[StreetCross] Menu đồng hồ: Dừng lộ trình (49)")
             onHandlebarButtonReceived?(.stopRoute)
+            return nil
+            
+        case 55: // 0x37: Mở danh sách hoặc bắt đầu nhận hình
+            let sub = bytes.count > 1 ? bytes[1] : 1
+            if sub == 3 {
+                print("[StreetCross] Menu đồng hồ: Mở danh sách Yêu thích (55, sub 3)")
+                onHandlebarButtonReceived?(.openFavorites)
+            } else if sub == 4 {
+                print("[StreetCross] Menu đồng hồ: Mở danh sách Cây xăng (55, sub 4)")
+                onHandlebarButtonReceived?(.openGasStations)
+            } else {
+                print("[StreetCross] Menu đồng hồ: Bắt đầu nhận hình (55, sub \(sub))")
+                onHandlebarButtonReceived?(.startStreamOrOpenMenu)
+            }
+            return nil
+            
+        case 56: // 0x38: Xe tạm dừng nhận hình / đóng danh sách → Phản hồi 20 (0x14)
+            print("[StreetCross] Menu đồng hồ: Đóng danh sách / Tạm dừng nhận hình (56) → Trả 20")
+            onHandlebarButtonReceived?(.pauseStreamOrCloseMenu)
+            return Data([0x14, 0x00])
+            
+        case 48: // 0x30: Chọn mục POI từ danh sách
+            let itemIdx = bytes.count > 1 ? Int(bytes[1]) : 0
+            let listId = bytes.count > 2 ? Int(bytes[2]) : 0
+            print("[StreetCross] Menu đồng hồ: Chọn mục \(itemIdx) của danh sách \(listId) (48)")
+            onHandlebarButtonReceived?(.selectPoiItem(index: itemIdx, listId: listId))
             return nil
             
         case 0x06: // ACK khung hình từ màn hình TFT
