@@ -273,27 +273,28 @@ public final class NavigationEngine: NSObject, ObservableObject {
     }
     
     // MARK: - Lập lộ trình chỉ đường bằng Valhalla Routing Engine (Tối ưu xe máy)
-    public func calculateRoute(to destination: CLLocationCoordinate2D) {
-        guard let start = currentLocation?.coordinate else {
-            print("[Nav] Chưa có vị trí GPS hiện tại để lập lộ trình")
+    public func calculateRoute(from origin: CLLocationCoordinate2D? = nil, to destination: CLLocationCoordinate2D, autoStart: Bool = true) {
+        let start = origin ?? currentLocation?.coordinate
+        guard let startCoord = start else {
+            print("[Nav] Chưa có vị trí GPS hiện tại hoặc Điểm A để lập lộ trình")
             return
         }
         
         isCalculatingRoute = true
-        requestValhallaRoute(start: start, destination: destination) { [weak self] route in
+        requestValhallaRoute(start: startCoord, destination: destination) { [weak self] route in
             guard let self = self else { return }
             if let route = route {
                 DispatchQueue.main.async {
-                    self.applyCalculatedRoute(route)
+                    self.applyCalculatedRoute(route, autoStart: autoStart)
                 }
             } else {
                 print("[Nav] Valhalla không khả dụng, kích hoạt dự phòng OSRM...")
-                self.fallbackOSRMRoute(start: start, destination: destination) { [weak self] fallbackRoute in
+                self.fallbackOSRMRoute(start: startCoord, destination: destination) { [weak self] fallbackRoute in
                     guard let self = self else { return }
                     DispatchQueue.main.async {
                         self.isCalculatingRoute = false
                         if let fb = fallbackRoute {
-                            self.applyCalculatedRoute(fb)
+                            self.applyCalculatedRoute(fb, autoStart: autoStart)
                         } else {
                             print("[Nav] Cả Valhalla và OSRM đều không tìm thấy lộ trình")
                         }
@@ -303,15 +304,28 @@ public final class NavigationEngine: NSObject, ObservableObject {
         }
     }
     
-    private func applyCalculatedRoute(_ route: OSMRoute) {
+    public func calculateRoute(to destination: CLLocationCoordinate2D) {
+        calculateRoute(from: nil, to: destination, autoStart: true)
+    }
+    
+    public func startActiveNavigation() {
+        guard activeRoute != nil else { return }
+        self.isNavigating = true
+        self.enableBackgroundUpdatesIfPossible()
+        self.updateCurrentInstruction()
+    }
+    
+    private func applyCalculatedRoute(_ route: OSMRoute, autoStart: Bool = true) {
         self.isCalculatingRoute = false
         self.activeRoute = route
         self.routeSteps = route.steps
         self.currentStepIndex = 0
         self.enableBackgroundUpdatesIfPossible()
-        self.isNavigating = true
-        self.updateCurrentInstruction()
-        print("[Nav] ✓ Lộ trình Valhalla sẵn sàng: \(route.steps.count) bước, cự ly \(Int(route.distanceMeters))m, thời gian \(Int(route.durationSeconds))s")
+        self.isNavigating = autoStart
+        if autoStart {
+            self.updateCurrentInstruction()
+        }
+        print("[Nav] ✓ Lộ trình Valhalla sẵn sàng: \(route.steps.count) bước, cự ly \(Int(route.distanceMeters))m, thời gian \(Int(route.durationSeconds))s (autoStart: \(autoStart))")
     }
     
     // MARK: - Gọi API Valhalla Routing Engine với cấu hình xe máy (costing: motorcycle)
