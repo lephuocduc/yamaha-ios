@@ -251,8 +251,15 @@ public final class TFTStreamRenderer: ObservableObject {
             let rawSpeed = nav.currentSpeedKmh
             let displaySpeed = rawSpeed >= 2.5 ? rawSpeed : 0.0
             
-            let road = nav.currentRoadName.isEmpty ? nav.currentInstruction.nextRoadName : nav.currentRoadName
-            if !road.isEmpty && road != "MyNMAX" {
+            let road: String
+            if !nav.currentRoadName.isEmpty && nav.currentRoadName != "MyNMAX" {
+                road = nav.currentRoadName
+            } else if !nav.currentInstruction.nextRoadName.isEmpty {
+                road = nav.currentInstruction.nextRoadName
+            } else {
+                road = ""
+            }
+            if nav.isNavigating && !road.isEmpty {
                 ccu.updateCurrentRoadNameOnTFT(
                     road,
                     distanceMeters: Double(nav.currentInstruction.distanceMeters),
@@ -669,10 +676,10 @@ public final class TFTStreamRenderer: ObservableObject {
         ctx.addLine(to: CGPoint(x: size.width, y: bannerHeight))
         ctx.strokePath()
         
-        // Mũi tên chỉ hướng rẽ (Kích thước cực lớn 40x40 để người lái nhìn rõ tức thì)
+        // Mũi tên chỉ hướng rẽ (Kích thước lớn 46x46 căn giữa theo chiều cao dải đen 62px)
         let arrowSymbol = instruction.direction.iconName
         if let arrowImage = UIImage(systemName: arrowSymbol)?.withTintColor(UIColor(red: 0.0, green: 1.0, blue: 0.45, alpha: 1.0), renderingMode: .alwaysOriginal) {
-            arrowImage.draw(in: CGRect(x: 10, y: 11, width: 40, height: 40))
+            arrowImage.draw(in: CGRect(x: 8, y: 8, width: 46, height: 46))
         }
         
         // Hộp hiển thị Thời gian dự kiến đến (ETA) ở góc trên bên phải thanh Header
@@ -715,47 +722,37 @@ public final class TFTStreamRenderer: ObservableObject {
             )
         }
         
-        // Text hướng dẫn chính: Khoảng cách cực bự (32pt) + Tên đường bự (22pt)
+        // Text hướng dẫn chính: Phóng bự chiếm hết chiều cao dải đen (36pt / 28pt), căn giữa hoàn hảo
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineBreakMode = .byTruncatingTail
         
-        let availableTextWidth = size.width - 58 - (hasETA ? (etaWidth + 14) : 12)
-        let mainTextRect = CGRect(x: 58, y: 7, width: availableTextWidth, height: 32)
+        let availableTextWidth = size.width - 60 - (hasETA ? (etaWidth + 14) : 12)
+        let mainTextRect = CGRect(x: 60, y: 7, width: availableTextWidth, height: 48)
         
         let navText = NSMutableAttributedString()
         
-        // 1. Khoảng cách còn lại tới ngã rẽ (Cỡ chữ to 32pt, Xanh Neon)
+        // 1. Khoảng cách còn lại tới ngã rẽ (Cỡ chữ cực to 36pt Heavy, Xanh Neon)
         navText.append(NSAttributedString(
             string: instruction.formattedDistance + " ",
             attributes: [
-                .font: UIFont.systemFont(ofSize: 32, weight: .heavy),
+                .font: UIFont.systemFont(ofSize: 36, weight: .heavy),
                 .foregroundColor: UIColor(red: 0.0, green: 1.0, blue: 0.45, alpha: 1.0),
                 .paragraphStyle: paragraphStyle
             ]
         ))
         
-        // 2. Tên đường tiếp theo / Hướng rẽ chi tiết (Cỡ chữ to 22pt, Trắng sáng)
+        // 2. Tên đường tiếp theo (Cỡ chữ to 28pt Bold, Trắng sáng)
         let roadName = instruction.nextRoadName.isEmpty ? "Đi theo lộ trình" : instruction.nextRoadName
         navText.append(NSAttributedString(
-            string: "• \(roadName)",
+            string: "· \(roadName)",
             attributes: [
-                .font: UIFont.systemFont(ofSize: 22, weight: .bold),
+                .font: UIFont.systemFont(ofSize: 28, weight: .bold),
                 .foregroundColor: UIColor.white,
                 .paragraphStyle: paragraphStyle
             ]
         ))
         
         navText.draw(in: mainTextRect)
-        
-        // Dòng phụ hiển thị hành động chi tiết (13pt Bold Cyan)
-        let subTextRect = CGRect(x: 58, y: 39, width: availableTextWidth, height: 18)
-        let subDesc = !instruction.detailedInstruction.isEmpty ? instruction.detailedInstruction : instruction.direction.descriptionVi
-        let subAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 13, weight: .bold),
-            .foregroundColor: UIColor(red: 0.0, green: 0.90, blue: 1.0, alpha: 1.0),
-            .paragraphStyle: paragraphStyle
-        ]
-        (subDesc as NSString).draw(in: subTextRect, withAttributes: subAttrs)
     }
     
     // MARK: - Nhãn bản quyền OpenStreetMap

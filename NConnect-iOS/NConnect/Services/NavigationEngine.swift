@@ -24,10 +24,11 @@ public final class NavigationEngine: NSObject, ObservableObject {
     @Published public var homeLocation: SavedLocation?
     @Published public var workLocation: SavedLocation?
     @Published public var favoriteLocations: [SavedLocation] = []
-    @Published public var currentRoadName: String = "MyNMAX"
+    @Published public var currentRoadName: String = ""
     @Published public var currentHeading: Double = -1.0
     @Published public var isRerouting: Bool = false
     public var onRoadNameChanged: ((String) -> Void)?
+    public var onNavigationStopped: (() -> Void)?
     
     // Quản lý giọng nói chỉ đường tiếng Việt
     private let speechSynthesizer = AVSpeechSynthesizer()
@@ -812,6 +813,8 @@ public final class NavigationEngine: NSObject, ObservableObject {
         inst.currentRoadName = currentRoadName
         inst.isNavigating = false
         currentInstruction = inst
+        
+        onNavigationStopped?()
     }
     
     private func updateCurrentInstruction() {

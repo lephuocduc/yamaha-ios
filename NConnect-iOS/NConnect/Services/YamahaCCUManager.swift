@@ -323,8 +323,9 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     log("✓ Mã CCU xe: \(ccuPart) → Gửi phản hồi echo svc 84 + setup burst")
                     writeEAData(NaviLite.frame(6, 84, 1, NaviLite.secDataAckPayload(f.payload)))
                     
-                    // Setup burst cấu hình hiển thị ban đầu chuẩn Garmin StreetCross (Service 4 & Lệnh 14 sub 0x1A)
-                    let currentRoad = !self.lastSentRoadName.isEmpty ? self.lastSentRoadName : "MyNMAX"
+                    // Setup burst cấu hình hiển thị ban đầu chuẩn Garmin StreetCross (Service 4 & Lệnh 1 sub 0x1A)
+                    let currentRoad = (!self.lastSentRoadName.isEmpty && self.lastSentRoadName != "MyNMAX") ? self.lastSentRoadName : ""
+                    let navActive: UInt8 = currentRoad.isEmpty ? 0 : 1
                     let roadBytes = [UInt8](currentRoad.prefix(64).utf8)
                     let roadPayload: [UInt8] = [0x07, 0x1A, UInt8(roadBytes.count & 0xff), 0x00] + roadBytes
                     
@@ -332,13 +333,15 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     let s4Init: [UInt8] = [0, 0, 0, 0, 0, 1, UInt8(roadBytes.count), 0x6D] + roadBytes
                     
                     let setup: [(UInt8, UInt8, [UInt8])] = [
-                        (2, 0, [0, 0]),
+                        (2, 0, [navActive, 0]),
                         (31, 0, [1, 0]),
                         (10, 0, [0, 0]),
                         (11, 0, [0, 0]),
                         (13, 0, [1, 0]),
                         (12, 0, [0, 0]),
                         (4, 1, s4Init),
+                        (1, 3, roadBytes),
+                        (1, 14, roadPayload),
                         (14, 1, roadPayload),
                         (3, 1, []),
                         (17, 1, NaviLite.hexB("00000000036d7068")),
@@ -578,10 +581,10 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Cập nhật tên con đường xe đang chạy lên thanh footer của màn hình xe (Garmin svc 4 & svc 14)
+    // MARK: - Cập nhật tên con đường xe đang chạy lên thanh footer của màn hình xe (Garmin svc 2, svc 4 & svc 1)
     public func updateCurrentRoadNameOnTFT(_ rawRoadName: String, distanceMeters: Double = 0.0, maneuverIcon: UInt8 = 0) {
         let clean = cleanVietnameseForGarmin(rawRoadName)
-        guard !clean.isEmpty else { return }
+        guard !clean.isEmpty && clean != "MyNMAX" else { return }
         lastSentRoadName = clean
         
         DispatchQueue.main.async {
@@ -590,7 +593,10 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         
         guard isMFiConnected && eaOutput != nil else { return }
         
-        // 1. GỬI SERVICE 4: Chuẩn giao tiếp Garmin StreetCross của xe Yamaha NMAX/XMAX để hiển thị tên đường ở thanh footer
+        // 1. GỬI SERVICE 2: Báo đồng hồ xe BẬT khung dẫn đường (Active Navigation Mode: [1, 0])
+        writeEAData(NaviLite.frame(6, 2, 0, [1, 0]))
+        
+        // 2. GỬI SERVICE 4: Chuẩn giao tiếp Garmin StreetCross của xe Yamaha NMAX/XMAX để hiển thị tên đường ở thanh footer
         var unitStr = "m"
         var distVal = Float(distanceMeters)
         if distanceMeters >= 1000.0 {
@@ -612,10 +618,26 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         log("Đồng hồ xe: Gửi Service 4 cập nhật footer: ▲ \(clean)")
         writeEAData(NaviLite.frame(6, 4, 1, s4))
         
-        // 2. Gửi thêm Service 14 sub 0x1A dự phòng
+        // 3. GỬI SERVICE 1 LỆNH 3: Chuẩn APK Lo3/c;->b(bytes, 1, 3) để cập nhật trực tiếp chuỗi tên đường cho đồng hồ
+        writeEAData(NaviLite.frame(6, 1, 3, roadBytes))
+        
+        // 4. GỬI SERVICE 1 LỆNH 14 (sub 0x1A): Đồng bộ tên đường phụ
         var s14: [UInt8] = [0x07, 0x1A, UInt8(roadBytes.count & 0xff), 0x00]
         s14.append(contentsOf: roadBytes)
+        writeEAData(NaviLite.frame(6, 1, 14, s14))
         writeEAData(NaviLite.frame(6, 14, 1, s14))
+    }
+    
+    // MARK: - Tắt chế độ dẫn đường trên đồng hồ xe khi dừng hoặc tới đích (chuẩn APK Lo3/c;->b([0, 0], 2, 0))
+    public func stopNavigationOnTFT() {
+        guard isMFiConnected && eaOutput != nil else { return }
+        log("Đồng hồ xe: Tắt khung dẫn đường (Service 2 = [0, 0])")
+        writeEAData(NaviLite.frame(6, 2, 0, [0, 0]))
+        writeEAData(NaviLite.frame(6, 1, 3, []))
+        lastSentRoadName = ""
+        DispatchQueue.main.async {
+            self.currentRoadNameOnTFT = ""
+        }
     }
     
     public func cleanVietnameseForGarmin(_ str: String) -> String {
