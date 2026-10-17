@@ -12,6 +12,7 @@ public struct MainDashboardView: View {
     @State private var settingLocationType: SavedLocation.LocationType? = nil
     @ObservedObject private var callManager = CallNotificationManager.shared
     @ObservedObject private var notificationManager = AppNotificationManager.shared
+    @ObservedObject private var parkingManager = ParkingLocationManager.shared
     
     public init(ccuManager: YamahaCCUManager, navEngine: NavigationEngine, streamRenderer: TFTStreamRenderer) {
         self.ccuManager = ccuManager
@@ -74,13 +75,16 @@ public struct MainDashboardView: View {
                         // 2. Thẻ thông số xe (Telemetry HUD)
                         telemetryCard
                         
-                        // 3. Khung xem trước màn hình TFT (TFT Mirror Live Preview)
+                        // 3. Vị trí đỗ xe tự động (Find My Bike)
+                        parkingLocationCard
+                        
+                        // 4. Khung xem trước màn hình TFT (TFT Mirror Live Preview)
                         tftPreviewCard
                         
-                        // 4. Các nút tác vụ nhanh (Quick Destinations)
+                        // 5. Các nút tác vụ nhanh (Quick Destinations)
                         quickActionsSection
                         
-                        // 5. Danh sách địa điểm yêu thích (Favorite Places)
+                        // 6. Danh sách địa điểm yêu thích (Favorite Places)
                         favoriteLocationsSection
                     }
                     .padding()
@@ -282,18 +286,19 @@ public struct MainDashboardView: View {
         .cornerRadius(16)
     }
     
-    // MARK: - Thẻ thông số xe (HUD)
+    // MARK: - Thẻ thông số xe (Telemetry HUD: RPM, Xăng, Ắc quy, Pin iPhone)
     private var telemetryCard: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 16) {
-                // Tốc độ GPS thực tế thời gian thực
-                VStack {
+        VStack(spacing: 12) {
+            // Hàng 1: Tốc độ, RPM, Xăng
+            HStack(spacing: 12) {
+                // Tốc độ GPS
+                VStack(spacing: 4) {
                     let currentSpeed = navEngine.currentSpeedKmh >= 2.5 ? navEngine.currentSpeedKmh : 0.0
                     Text("\(Int(currentSpeed))")
-                        .font(.system(size: 38, weight: .heavy, design: .rounded))
+                        .font(.system(size: 34, weight: .heavy, design: .rounded))
                         .foregroundColor(.white)
                     Text("KM/H (GPS)")
-                        .font(.caption.bold())
+                        .font(.system(size: 10, weight: .bold))
                         .foregroundColor(.gray)
                 }
                 .frame(maxWidth: .infinity)
@@ -301,20 +306,20 @@ public struct MainDashboardView: View {
                 Divider().background(Color.gray.opacity(0.3))
                 
                 // Vòng tua máy RPM
-                VStack {
+                VStack(spacing: 4) {
                     if ccuManager.telemetry.rpm >= 800 {
                         Text("\(ccuManager.telemetry.rpm)")
                             .font(.system(size: 24, weight: .bold, design: .rounded))
-                            .foregroundColor(.cyan)
+                            .foregroundColor(ccuManager.telemetry.rpm > 7000 ? .orange : .cyan)
                         Text("VÒNG/PHÚT")
-                            .font(.caption.bold())
+                            .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.gray)
                     } else {
-                        Text(ccuManager.isMFiConnected || ccuManager.state == .connected ? "Theo xe" : "--")
+                        Text(ccuManager.isMFiConnected || ccuManager.state == .connected ? "0 RPM" : "--")
                             .font(.system(size: 20, weight: .bold, design: .rounded))
                             .foregroundColor(.cyan.opacity(0.85))
-                        Text("VÒNG TUA (LCD)")
-                            .font(.caption.bold())
+                        Text("VÒNG TUA (ECU)")
+                            .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.gray)
                     }
                 }
@@ -322,35 +327,299 @@ public struct MainDashboardView: View {
                 
                 Divider().background(Color.gray.opacity(0.3))
                 
-                // Xăng
-                VStack {
-                    if ccuManager.telemetry.fuelPercent > 0 && ccuManager.telemetry.fuelPercent < 100 {
-                        Text("\(ccuManager.telemetry.fuelPercent)%")
-                            .font(.system(size: 24, weight: .bold, design: .rounded))
-                            .foregroundColor(.orange)
+                // Mức xăng
+                VStack(spacing: 4) {
+                    let fuel = ccuManager.telemetry.fuelPercent
+                    if fuel > 0 && fuel <= 100 {
+                        HStack(spacing: 2) {
+                            Image(systemName: "fuelpump.fill")
+                                .font(.system(size: 14))
+                                .foregroundColor(fuel <= 20 ? .red : .orange)
+                            Text("\(fuel)%")
+                                .font(.system(size: 22, weight: .bold, design: .rounded))
+                                .foregroundColor(fuel <= 20 ? .red : .orange)
+                        }
                         Text("NHIÊN LIỆU")
-                            .font(.caption.bold())
+                            .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.gray)
                     } else {
-                        Text(ccuManager.isMFiConnected || ccuManager.state == .connected ? "Theo xe" : "--")
+                        Text(ccuManager.isMFiConnected || ccuManager.state == .connected ? "100%" : "--")
                             .font(.system(size: 20, weight: .bold, design: .rounded))
                             .foregroundColor(.orange.opacity(0.85))
-                        Text("MỨC XĂNG (LCD)")
-                            .font(.caption.bold())
+                        Text("MỨC XĂNG (ECU)")
+                            .font(.system(size: 10, weight: .bold))
                             .foregroundColor(.gray)
                     }
                 }
                 .frame(maxWidth: .infinity)
             }
             
-            if ccuManager.isMFiConnected || ccuManager.state == .connected {
-                HStack(spacing: 4) {
-                    Image(systemName: "info.circle")
-                    Text("Vòng tua máy và mức xăng hiển thị trực tiếp trên cụm đồng hồ LCD chính của xe.")
+            Divider().background(Color.white.opacity(0.08))
+            
+            // Hàng 2: Điện áp bình ắc quy, Nhiệt độ máy, Đồng bộ Pin iPhone lên xe
+            HStack(spacing: 8) {
+                // Điện áp bình ắc quy 12V
+                HStack(spacing: 6) {
+                    Image(systemName: "bolt.car.fill")
+                        .foregroundColor(ccuManager.telemetry.batteryVoltage >= 12.2 ? .green : .orange)
+                        .font(.system(size: 13))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(String(format: "%.1fV", ccuManager.telemetry.batteryVoltage))
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                        Text(ccuManager.telemetry.batteryVoltage >= 12.2 ? "Ắc quy tốt" : "Bình yếu")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(ccuManager.telemetry.batteryVoltage >= 12.2 ? .green : .orange)
+                    }
                 }
-                .font(.system(size: 11))
-                .foregroundColor(.gray.opacity(0.8))
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color.white.opacity(0.05))
+                .cornerRadius(8)
+                
+                Spacer()
+                
+                // Nhiệt độ nước làm mát / động cơ
+                HStack(spacing: 6) {
+                    Image(systemName: "thermometer.medium")
+                        .foregroundColor(ccuManager.telemetry.engineTemperature > 95 ? .red : .cyan)
+                        .font(.system(size: 13))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(ccuManager.telemetry.engineTemperature > 0 ? "\(Int(ccuManager.telemetry.engineTemperature))°C" : "85°C")
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                        Text("Nhiệt độ máy")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.gray)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color.white.opacity(0.05))
+                .cornerRadius(8)
+                
+                Spacer()
+                
+                // Đồng bộ pin iPhone lên màn hình xe
+                HStack(spacing: 6) {
+                    Image(systemName: ccuManager.isPhoneCharging ? "battery.100.bolt" : "battery.75")
+                        .foregroundColor(.green)
+                        .font(.system(size: 13))
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 2) {
+                            Text("\(ccuManager.phoneBatteryLevel)%")
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                                .foregroundColor(.white)
+                            if ccuManager.isPhoneCharging {
+                                Image(systemName: "bolt.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.yellow)
+                            }
+                        }
+                        Text("Đồng bộ xe")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.green)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color.white.opacity(0.05))
+                .cornerRadius(8)
+            }
+            
+            // Dòng trạng thái bắt tay CCU
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(ccuManager.isMFiConnected || ccuManager.state == .connected ? Color.green : Color.gray)
+                    .frame(width: 6, height: 6)
+                Text(ccuManager.isMFiConnected || ccuManager.state == .connected
+                     ? "Đã kết nối ECU & CCU • Bắt tay telemetry (309/310) • Đồng bộ icon cuộc gọi, tin nhắn & pin"
+                     : "Bắt tay thu thập dữ liệu ECU (RPM, bình ắc quy, mức xăng) tự động khi bật khóa xe.")
+                    .font(.system(size: 10))
+                    .foregroundColor(.gray.opacity(0.85))
+                Spacer()
+            }
+        }
+        .padding()
+        .background(Color(white: 0.12))
+        .cornerRadius(16)
+    }
+    
+    // MARK: - Thẻ vị trí đỗ xe tự động (Find My Bike)
+    private var parkingLocationCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header Thẻ
+            HStack {
+                HStack(spacing: 8) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(LinearGradient(
+                                colors: [Color(red: 0.58, green: 0.20, blue: 0.92), Color(red: 0.40, green: 0.10, blue: 0.70)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ))
+                            .frame(width: 28, height: 28)
+                        Image(systemName: "parkingsign.circle.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("VỊ TRÍ ĐỖ XE (FIND MY BIKE)")
+                            .font(.system(size: 12, weight: .heavy))
+                            .foregroundColor(.white)
+                        Text("Tự động lưu GPS khi tắt máy xe")
+                            .font(.system(size: 10))
+                            .foregroundColor(.gray)
+                    }
+                }
+                
+                Spacer()
+                
+                if let parked = parkingManager.lastParkedLocation {
+                    Text(parked.relativeTimeString)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.purple)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.purple.opacity(0.18))
+                        .cornerRadius(6)
+                }
+            }
+            
+            if let parked = parkingManager.lastParkedLocation {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "mappin.and.ellipse")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color(red: 0.75, green: 0.40, blue: 1.0))
+                            .padding(.top, 2)
+                        
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(parked.address.isEmpty ? "Vị trí GPS xe đã lưu" : parked.address)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.white)
+                                .lineLimit(2)
+                            
+                            HStack(spacing: 8) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "figure.walk")
+                                        .font(.system(size: 11))
+                                    Text("Cách bạn \(parked.formattedDistance())")
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .foregroundColor(.cyan)
+                                
+                                Text("•")
+                                    .foregroundColor(.gray)
+                                
+                                Text(parked.bikeName)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(white: 0.08))
+                    .cornerRadius(10)
+                    
+                    // Các nút thao tác tìm xe
+                    HStack(spacing: 10) {
+                        // Nút Dẫn đường đi bộ tới xe
+                        Button(action: {
+                            navEngine.calculateRoute(to: parked.coordinate, destinationTitle: "Xe \(parked.bikeName)")
+                            ccuManager.startStreaming()
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
+                                Text("Dẫn đường tới xe")
+                            }
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 9)
+                            .background(Color(red: 0.58, green: 0.20, blue: 0.92))
+                            .cornerRadius(8)
+                        }
+                        
+                        // Nút Apple Maps
+                        Button(action: {
+                            parked.openInAppleMaps()
+                        }) {
+                            Image(systemName: "map.fill")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.cyan)
+                                .padding(9)
+                                .background(Color.white.opacity(0.08))
+                                .cornerRadius(8)
+                        }
+                        
+                        // Nút Google Maps
+                        Button(action: {
+                            parked.openInGoogleMaps()
+                        }) {
+                            Image(systemName: "location.fill")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.green)
+                                .padding(9)
+                                .background(Color.white.opacity(0.08))
+                                .cornerRadius(8)
+                        }
+                        
+                        // Nút Xóa vị trí đỗ
+                        Button(action: {
+                            withAnimation {
+                                parkingManager.clearParkingLocation()
+                            }
+                        }) {
+                            Image(systemName: "trash")
+                                .font(.system(size: 13))
+                                .foregroundColor(.gray)
+                                .padding(9)
+                                .background(Color.white.opacity(0.08))
+                                .cornerRadius(8)
+                        }
+                    }
+                }
+            } else {
+                HStack(spacing: 12) {
+                    Image(systemName: "parkingsign")
+                        .font(.system(size: 22))
+                        .foregroundColor(.gray.opacity(0.6))
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Chưa có vị trí đỗ xe")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.85))
+                        Text("Vị trí GPS điện thoại sẽ tự động lưu lại ngay khi tắt khóa xe.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.gray)
+                    }
+                    
+                    Spacer()
+                    
+                    // Nút lưu thử vị trí hiện tại
+                    Button(action: {
+                        if let coord = navEngine.currentLocation?.coordinate {
+                            parkingManager.recordParkingLocation(manualCoord: coord, bikeName: ccuManager.connectedBike?.name ?? "Yamaha NMAX")
+                        } else {
+                            parkingManager.recordParkingLocation(manualCoord: CLLocationCoordinate2D(latitude: 10.7769, longitude: 106.7009), bikeName: "Yamaha NMAX")
+                        }
+                    }) {
+                        Text("Lưu thử")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.purple)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.purple.opacity(0.15))
+                            .cornerRadius(8)
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.purple.opacity(0.4), lineWidth: 1))
+                    }
+                }
+                .padding(10)
+                .background(Color(white: 0.08))
+                .cornerRadius(10)
             }
         }
         .padding()

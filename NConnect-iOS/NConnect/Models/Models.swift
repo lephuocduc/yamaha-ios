@@ -71,6 +71,7 @@ public struct SavedLocation: Identifiable, Codable {
         case work = "Cơ quan"
         case gas = "Trạm xăng"
         case favorite = "Yêu thích"
+        case parking = "Vị trí đỗ xe"
     }
     
     public var coordinate: CLLocationCoordinate2D {

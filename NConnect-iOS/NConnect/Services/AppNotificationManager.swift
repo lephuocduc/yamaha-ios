@@ -65,6 +65,7 @@ public final class AppNotificationManager: ObservableObject {
                 self?.dismissNotification()
             }
             
+            YamahaCCUManager.shared?.sendMessageIndicatorToCluster(appName: appName, sender: sender, message: message)
             YamahaCCUManager.shared?.log("[Thông báo TFT] 📩 [\(appName)] \(sender): \(message.prefix(30))... (Hiện \(self.displayDurationSeconds)s)")
             self.onNotificationChanged?()
         }
@@ -77,6 +78,7 @@ public final class AppNotificationManager: ObservableObject {
             self.activeNotification = nil
             self.autoDismissTimer?.invalidate()
             self.autoDismissTimer = nil
+            YamahaCCUManager.shared?.clearMessageIndicatorOnCluster()
             self.onNotificationChanged?()
         }
     }

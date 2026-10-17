@@ -34,11 +34,12 @@ public class RoutePointAnnotation: NSObject, MKAnnotation {
     }
 }
 
-// MARK: - Loại địa điểm đặc biệt đã lưu (Nhà, Công ty, Yêu thích)
+// MARK: - Loại địa điểm đặc biệt đã lưu (Nhà, Công ty, Yêu thích, Vị trí đỗ xe)
 public enum SpecialPlaceType: String {
     case home = "Nhà"
     case work = "Công ty"
     case favorite = "Yêu thích"
+    case parking = "Vị trí đỗ xe"
 }
 
 // MARK: - Annotation ghim các địa điểm đặc biệt trên bản đồ lớn
@@ -82,6 +83,7 @@ public struct LiveNavigationView: View {
     @ObservedObject private var callManager = CallNotificationManager.shared
     @ObservedObject private var notificationManager = AppNotificationManager.shared
     @ObservedObject private var savedPlaces = SavedPlacesManager.shared
+    @ObservedObject private var parkingManager = ParkingLocationManager.shared
     
     // Quản lý Điểm A (Xuất phát) và Điểm B (Điểm đến)
     @State private var pointA: RoutePointItem? = nil // nil = Vị trí GPS hiện tại của người dùng
@@ -1835,6 +1837,12 @@ public struct OSMMapView: UIViewRepresentable {
                     view.displayPriority = .defaultHigh
                     iconView.image = UIImage(systemName: "star.fill")
                     iconView.tintColor = UIColor(red: 1.0, green: 0.75, blue: 0.0, alpha: 1.0)
+                case .parking:
+                    view.markerTintColor = UIColor(red: 0.58, green: 0.20, blue: 0.92, alpha: 1.0) // Deep Purple
+                    view.glyphImage = UIImage(systemName: "parkingsign.circle.fill")
+                    view.displayPriority = .required
+                    iconView.image = UIImage(systemName: "parkingsign.circle.fill")
+                    iconView.tintColor = UIColor(red: 0.58, green: 0.20, blue: 0.92, alpha: 1.0)
                 }
                 
                 view.leftCalloutAccessoryView = iconView
@@ -1878,7 +1886,7 @@ public struct OSMMapView: UIViewRepresentable {
             }
         }
         
-        // MARK: - Cập nhật và hiển thị các địa điểm đặc biệt đã lưu (Nhà, Công ty, Yêu thích) lên bản đồ lớn
+        // MARK: - Cập nhật và hiển thị các địa điểm đặc biệt đã lưu (Nhà, Công ty, Yêu thích, Vị trí đỗ xe) lên bản đồ lớn
         public func updateSpecialPlaces(on mapView: MKMapView) {
             var placesToDisplay: [(coord: CLLocationCoordinate2D, type: SpecialPlaceType, title: String, subtitle: String)] = []
             
@@ -1911,6 +1919,14 @@ public struct OSMMapView: UIViewRepresentable {
                     seenCoords.append(c)
                     placesToDisplay.append((c, .favorite, fav.title, fav.subtitle.isEmpty ? "Yêu thích • Chạm nút chỉ đường" : "\(fav.subtitle) • Chạm nút chỉ đường"))
                 }
+            }
+            
+            // 4. Vị trí đỗ xe máy gần nhất (Find My Bike)
+            if let parked = ParkingLocationManager.shared.lastParkedLocation {
+                let sub = parked.address.isEmpty
+                    ? "Đỗ lúc \(parked.relativeTimeString) (\(parked.formattedDistance())) • Chạm nút tìm xe"
+                    : "\(parked.address) • Đỗ lúc \(parked.relativeTimeString) (\(parked.formattedDistance())) • Chạm nút tìm xe"
+                placesToDisplay.append((parked.coordinate, .parking, "Vị trí xe (\(parked.bikeName))", sub))
             }
             
             let key = placesToDisplay.map { "\($0.type.rawValue)_\($0.coord.latitude)_\($0.coord.longitude)_\($0.title)" }.joined(separator: "|")

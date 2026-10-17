@@ -29,6 +29,7 @@ public final class CallNotificationManager: NSObject, ObservableObject, CXCallOb
                 self.isCallRinging = false
                 self.isCallConnected = false
                 self.currentCallUUID = nil
+                YamahaCCUManager.shared?.sendCallIndicatorToCluster(isActive: false)
                 YamahaCCUManager.shared?.log("[Cuộc gọi] ⏹ Cuộc gọi đã kết thúc")
             } else if !call.hasConnected && !call.isOutgoing {
                 self.isCallRinging = true
@@ -42,6 +43,7 @@ public final class CallNotificationManager: NSObject, ObservableObject, CXCallOb
                     self.callerName = "Cuộc gọi đến"
                 }
                 
+                YamahaCCUManager.shared?.sendCallIndicatorToCluster(isActive: true)
                 YamahaCCUManager.shared?.log("[Cuộc gọi] 📞 Cuộc gọi đến từ '\(self.callerName)' đang đổ chuông!")
             } else if call.hasConnected {
                 self.isCallRinging = false
@@ -58,6 +60,7 @@ public final class CallNotificationManager: NSObject, ObservableObject, CXCallOb
             self.callerName = callerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Cuộc gọi đến" : callerName
             self.isCallRinging = true
             self.isCallConnected = false
+            YamahaCCUManager.shared?.sendCallIndicatorToCluster(isActive: true)
             YamahaCCUManager.shared?.log("[Cuộc gọi] 📞 Kích hoạt hiển thị cuộc gọi: \(self.callerName)")
         }
     }
@@ -126,6 +129,7 @@ public final class CallNotificationManager: NSObject, ObservableObject, CXCallOb
     
     // MARK: - Từ chối / Kết thúc cuộc gọi khi bấm phím (-) trên cùm tay lái xe
     public func rejectCall() {
+        YamahaCCUManager.shared?.sendCallIndicatorToCluster(isActive: false)
         guard let uuid = currentCallUUID ?? callObserver.calls.first(where: { !$0.hasEnded })?.uuid else {
             YamahaCCUManager.shared?.log("[Cuộc gọi] Bấm (-) -> Kết thúc cuộc gọi")
             DispatchQueue.main.async {
@@ -147,6 +151,7 @@ public final class CallNotificationManager: NSObject, ObservableObject, CXCallOb
                 self?.isCallRinging = false
                 self?.isCallConnected = false
                 self?.currentCallUUID = nil
+                YamahaCCUManager.shared?.sendCallIndicatorToCluster(isActive: false)
                 YamahaCCUManager.shared?.log("[Cuộc gọi] ✓ Đã ngắt / từ chối cuộc gọi")
             }
         }

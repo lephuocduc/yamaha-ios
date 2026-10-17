@@ -254,6 +254,56 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
 
 ---
 
+### 🔴 TÍNH NĂNG 13: Lưu vị trí đỗ xe tự động (Find My Bike) khi tắt máy xe & Hiển thị bản đồ tìm xe
+* **Yêu cầu**: Tự động lưu vị trí GPS của điện thoại tại khoảnh khắc người dùng tắt chìa khóa xe máy (ngắt kết nối BLE CCU hoặc MFi). Hiển thị thẻ vị trí đỗ xe trên trang chủ và ghim màu tím trên bản đồ lớn kèm các nút chỉ đường đi bộ tới xe.
+* **Kiến trúc giải pháp chuẩn xác**:
+  1. **Bộ quản lý đỗ xe chuyên dụng (`ParkingLocationManager`)**:
+     - Lưu trữ tọa độ GPS, thời điểm đỗ (`Date`), địa chỉ đường phố cụ thể (thông qua `CLGeocoder` tự động giải mã ngược) và tên xe đã ghép đôi.
+     - Dữ liệu được lưu trữ bền bỉ trong `UserDefaults` dưới khóa `kLastParkedBikeLocationKey`.
+     - Tự động tính toán khoảng cách thực tế giữa vị trí người dùng hiện tại và xe (`formattedDistance()`), kèm thời gian tương đối đã trôi qua (`relativeTimeString`: *"5 phút trước"*, *"2 giờ trước"*).
+  2. **Kích hoạt tự động khi tắt máy xe (`YamahaCCUManager`)**:
+     - Cờ `wasConnectedToBike` theo dõi trạng thái kết nối thực tế với xe.
+     - Khi người dùng tắt chìa khóa (sự kiện ngắt kết nối BLE `didDisconnectPeripheral` hoặc MFi `accessoryDidDisconnect`): hệ thống kiểm tra nếu trước đó xe đang kết nối, lập tức lấy tọa độ GPS chính xác nhất của điện thoại tại thời điểm đó và lưu vào `ParkingLocationManager`. Tránh lưu sai vị trí khi người dùng chỉ mở app xem mà chưa từng kết nối xe.
+  3. **Giao diện thẻ đỗ xe trên Trang chủ & Ghim trên Bản đồ lớn**:
+     - **Thẻ Find My Bike trên Trang chủ**: Nổi bật với gradient màu tím, hiển thị địa chỉ chi tiết, khoảng cách đi bộ, thời gian đỗ, nút "Dẫn đường tới xe", nút mở nhanh qua Apple Maps / Google Maps và nút xóa vị trí.
+     - **Ghim màu tím (`.parking`) trên Bản đồ lớn (`LiveNavigationView`)**: Icon `parkingsign.circle.fill` sắc tím hoàng gia, hiển thị callout thông tin và nút điều hướng đi bộ trực tiếp tới nơi xe đang đỗ.
+
+---
+
+### 🔴 TÍNH NĂNG 14: Đồng bộ mức pin iPhone & Kích hoạt Icon cuộc gọi / tin nhắn trên mặt đồng hồ xe
+* **Yêu cầu**:
+  - Gửi phần trăm pin iPhone và trạng thái sạc xuống bộ điều khiển CCU của xe để hiển thị icon pin điện thoại trên màn hình đồng hồ tốc độ NMAX.
+  - Kích hoạt biểu tượng Cuộc gọi (Phone Icon) trên mặt đồng hồ khi có cuộc gọi đến và tắt đi khi kết thúc đàm thoại.
+  - Kích hoạt biểu tượng Thư / Tin nhắn (Mail/SMS Icon) trên mặt đồng hồ khi nhận được thông báo ứng dụng (Zalo, Tin nhắn, Messenger, v.v.).
+* **Kiến trúc giải pháp chuẩn xác từ Dalvik Bytecode của Yamaha CCU**:
+  1. **Đồng bộ Pin iPhone (Command ID 316 - `0x013C`)**:
+     - Đặc tả gói tin Yamaha DDT: `[0x3C, 0x01, mediaVol, callVol, battByte, signal]`.
+     - `battByte`: Bit 7 là cờ sạc (`isCharging ? 0x80 : 0x00`), 7 bit thấp chứa phần trăm pin `(0..100)`.
+     - Lắng nghe sự kiện `UIDevice.batteryLevelDidChangeNotification` và gửi định kỳ 60 giây một lần qua characteristic `B606C7F9-B605-4306-8C1C-755A1BA3066C` (BLE) và Service 13 (MFi).
+  2. **Kích hoạt Icon Cuộc gọi trên đồng hồ (Command ID 308 - `0x0134`)**:
+     - Khi có cuộc gọi đến (`CallNotificationManager.isCallRinging`): Gửi payload `[0x34, 0x01, 0x01]` -> Icon cuộc gọi trên mặt đồng hồ xe nhấp nháy/sáng lên báo cho người lái.
+     - Khi kết thúc cuộc gọi / từ chối: Gửi payload `[0x34, 0x01, 0x00]` -> Tắt icon cuộc gọi trên xe.
+  3. **Kích hoạt Icon Tin nhắn / Thông báo (Command ID 303 - `0x012F`)**:
+     - Gói tin thông báo gồm timestamp (năm, tháng, ngày, giờ, phút, giây), độ dài và nội dung tiêu đề/tin nhắn.
+     - Tự động sáng biểu tượng phong bì tin nhắn trên đồng hồ xe trong suốt thời gian hiển thị thông báo.
+
+---
+
+### 🔴 TÍNH NĂNG 15: Bắt tay thu thập dữ liệu ECU (Vòng tua máy RPM, điện áp bình ắc quy, mức xăng)
+* **Yêu cầu**: Bắt tay với bộ điều khiển CCU xe máy Yamaha NMAX, giải mã dữ liệu cảm biến ECU động cơ (vòng tua máy RPM, điện áp bình ắc quy 12V, mức xăng, nhiệt độ nước làm mát) và hiển thị trực tiếp lên bảng đồng hồ HUD trên điện thoại.
+* **Kiến trúc giải pháp chuẩn xác**:
+  1. **Bắt tay hai chiều (Handshake ACK 309 -> 310)**:
+     - Khi xe gửi gói tin telemetry ping mã `309` (`0x0135`), CCU yêu cầu điện thoại phản hồi xác nhận ACK `310` (`0x0136`) kèm trạng thái sẵn sàng `[0x36, 0x01, 0x01]`. Nếu không có gói tin này, CCU sẽ ngắt luồng dữ liệu thời gian thực sau 5 giây.
+  2. **Giải mã luồng Telemetry ECU**:
+     - **Vòng tua máy (Engine RPM)**: Giải mã từ giá trị 16-bit (Little-Endian / Big-Endian) nằm trong dải làm việc của động cơ xe tay ga 155cc (800 - 14,000 RPM).
+     - **Mức xăng (Fuel %)**: Giải mã giá trị phần trăm nhiên liệu 5% - 100%.
+     - **Điện áp bình ắc quy (Battery Voltage)**: Dữ liệu cảm biến điện áp 12V với độ phân giải 0.1V (giá trị thô 115 - 152 tương ứng 11.5V - 15.2V). Tự động đánh giá trạng thái bình: `>= 12.2V: Ắc quy tốt`, `< 12.2V: Bình yếu`.
+     - **Nhiệt độ nước làm mát động cơ (Coolant Temp)**: Dữ liệu cảm biến nhiệt độ 40°C - 115°C.
+  3. **Bảng đồng hồ HUD tái thiết kế hiện đại**:
+     - Hiển thị trực quan tốc độ GPS, RPM, mức xăng, điện áp ắc quy, nhiệt độ máy và trạng thái đồng bộ pin iPhone lên màn hình LCD của xe.
+
+---
+
 ## 4. QUY TRÌNH BIÊN DỊCH VÀ PHÁT HÀNH (CI/CD)
 - Dự án sử dụng GitHub Actions workflow (`.github/workflows/build-ios.yml`).
 - Mỗi khi có commit mới được push lên nhánh `main`, hệ thống tự động:
