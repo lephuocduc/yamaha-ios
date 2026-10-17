@@ -17,16 +17,18 @@ public struct RoutePointItem: Equatable, Identifiable {
     }
 }
 
-// MARK: - Annotation ghim Điểm A & Điểm B trên bản đồ
+// MARK: - Annotation ghim Điểm A, Điểm B & Điểm nhấn giữ trên bản đồ
 public class RoutePointAnnotation: NSObject, MKAnnotation {
     public var coordinate: CLLocationCoordinate2D
     public var isPointA: Bool
+    public var isDroppedPin: Bool
     public var title: String?
     public var subtitle: String?
     
-    public init(coordinate: CLLocationCoordinate2D, isPointA: Bool, title: String, subtitle: String? = nil) {
+    public init(coordinate: CLLocationCoordinate2D, isPointA: Bool = false, isDroppedPin: Bool = false, title: String, subtitle: String? = nil) {
         self.coordinate = coordinate
         self.isPointA = isPointA
+        self.isDroppedPin = isDroppedPin
         self.title = title
         self.subtitle = subtitle
     }
@@ -55,6 +57,13 @@ public struct LiveNavigationView: View {
     @State private var pointA: RoutePointItem? = nil // nil = Vị trí GPS hiện tại của người dùng
     @State private var pointB: RoutePointItem? = nil
     
+    // Quản lý Điểm ghim khi nhấn giữ trên bản đồ (Dropped Pin Long Press)
+    @State private var droppedPinCoordinate: CLLocationCoordinate2D? = nil
+    @State private var droppedPinTitle: String = ""
+    @State private var droppedPinSubtitle: String = ""
+    @State private var isLoadingAddress: Bool = false
+    @State private var showDroppedPinCard: Bool = false
+    
     private enum SearchTarget {
         case pointA
         case pointB
@@ -69,14 +78,18 @@ public struct LiveNavigationView: View {
     
     public var body: some View {
         ZStack {
-            // 1. Bản đồ OpenStreetMap tương tác vẽ lộ trình và ghim A/B
+            // 1. Bản đồ OpenStreetMap tương tác vẽ lộ trình, ghim A/B và ghim điểm nhấn giữ
             OSMMapView(
                 navEngine: navEngine,
                 trackingMode: $trackingMode,
                 orientationMode: orientationMode,
                 route: navEngine.activeRoute,
                 coordA: effectivePointACoordinate,
-                coordB: pointB?.coordinate
+                coordB: pointB?.coordinate,
+                droppedPinCoord: droppedPinCoordinate,
+                onLocationLongPressed: { coord in
+                    handleMapLongPress(coordinate: coord)
+                }
             )
             .ignoresSafeArea(edges: .top)
             
@@ -117,8 +130,11 @@ public struct LiveNavigationView: View {
                 
                 Spacer()
                 
-                // 3. Phía dưới: Thẻ tóm tắt lộ trình (khi đã vẽ đường xong) HOẶC Các nút điều khiển bản đồ
-                if navEngine.activeRoute != nil && !navEngine.isNavigating {
+                // 3. Phía dưới: Thẻ chi tiết khi nhấn giữ (Dropped Pin) HOẶC Thẻ tóm tắt lộ trình HOẶC Các nút điều khiển
+                if showDroppedPinCard && droppedPinCoordinate != nil {
+                    droppedPinCard
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else if navEngine.activeRoute != nil && !navEngine.isNavigating {
                     routePreviewCard
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
@@ -250,6 +266,124 @@ public struct LiveNavigationView: View {
             .cornerRadius(16)
             .shadow(color: Color.black.opacity(0.4), radius: 8, y: 4)
         }
+    }
+    
+    // MARK: - Thẻ chi tiết địa điểm khi nhấn giữ (Dropped Pin Location Card)
+    private var droppedPinCard: some View {
+        VStack(spacing: 12) {
+            // Thanh cầm kéo nhỏ phía trên
+            Capsule()
+                .fill(Color.gray.opacity(0.45))
+                .frame(width: 36, height: 4)
+                .padding(.top, 2)
+            
+            HStack(alignment: .top, spacing: 12) {
+                // Biểu tượng ghim đỏ
+                ZStack {
+                    Circle()
+                        .fill(Color.red.opacity(0.18))
+                        .frame(width: 42, height: 42)
+                    Image(systemName: "mappin.and.ellipse")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.red)
+                }
+                
+                VStack(alignment: .leading, spacing: 3) {
+                    if isLoadingAddress {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .scaleEffect(0.75)
+                            Text("Đang tra cứu địa chỉ...")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+                    } else {
+                        Text(droppedPinTitle)
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundColor(.white)
+                            .lineLimit(2)
+                    }
+                    
+                    Text(droppedPinSubtitle)
+                        .font(.system(size: 13))
+                        .foregroundColor(.gray)
+                        .lineLimit(2)
+                    
+                    // Khoảng cách ước tính từ vị trí hiện tại của xe
+                    if let cur = navEngine.currentLocation, let pinCoord = droppedPinCoordinate {
+                        let distMeters = cur.distance(from: CLLocation(latitude: pinCoord.latitude, longitude: pinCoord.longitude))
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
+                                .font(.system(size: 11))
+                                .foregroundColor(.cyan)
+                            Text("Cách vị trí hiện tại: \(formatDistance(meters: distMeters))")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.cyan)
+                        }
+                        .padding(.top, 2)
+                    }
+                }
+                
+                Spacer()
+                
+                // Nút Đóng / Bỏ ghim
+                Button(action: {
+                    dismissDroppedPin()
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundColor(.gray.opacity(0.8))
+                }
+            }
+            
+            // Các nút hành động: Dẫn đường tới đây & Đặt làm điểm xuất phát
+            HStack(spacing: 10) {
+                // Nút DẪN ĐƯỜNG ĐẾN ĐÂY (Nổi bật, to, xanh lá)
+                Button(action: {
+                    navigateCurrentToDroppedPin()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.triangle.turn.up.right.circle.fill")
+                            .font(.system(size: 16, weight: .bold))
+                        Text("DẪN ĐƯỜNG ĐẾN ĐÂY")
+                            .font(.system(size: 14, weight: .heavy))
+                    }
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color.green)
+                    .cornerRadius(12)
+                    .shadow(color: Color.green.opacity(0.4), radius: 4, y: 2)
+                }
+                
+                // Nút ĐẶT LÀM ĐIỂM XUẤT PHÁT (Điểm A)
+                Button(action: {
+                    setDroppedPinAsPointA()
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "location.north.circle.fill")
+                            .font(.system(size: 14))
+                        Text("Điểm A")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(Color(white: 0.22))
+                    .cornerRadius(12)
+                }
+            }
+        }
+        .padding(14)
+        .background(Color(red: 0.08, green: 0.12, blue: 0.18).opacity(0.97))
+        .cornerRadius(18)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(Color.red.opacity(0.45), lineWidth: 1.5)
+        )
+        .shadow(color: Color.black.opacity(0.6), radius: 10, y: 4)
+        .padding(.horizontal)
+        .padding(.bottom, 6)
     }
     
     // MARK: - Thẻ tóm tắt lộ trình phong cách Google Maps (hiển thị khi vẽ đường xong)
@@ -658,6 +792,66 @@ public struct LiveNavigationView: View {
             return String(format: "%.1f km", meters / 1000.0)
         }
     }
+    
+    // MARK: - Xử lý khi nhấn giữ chọn địa điểm trên bản đồ
+    private func handleMapLongPress(coordinate: CLLocationCoordinate2D) {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+            droppedPinCoordinate = coordinate
+            droppedPinTitle = "Đang tra cứu địa chỉ..."
+            droppedPinSubtitle = String(format: "Tọa độ: %.5f, %.5f", coordinate.latitude, coordinate.longitude)
+            isLoadingAddress = true
+            showDroppedPinCard = true
+        }
+        
+        navEngine.reverseGeocode(coordinate: coordinate) { title, subtitle in
+            withAnimation {
+                self.droppedPinTitle = title
+                self.droppedPinSubtitle = subtitle
+                self.isLoadingAddress = false
+            }
+        }
+    }
+    
+    private func dismissDroppedPin() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            droppedPinCoordinate = nil
+            showDroppedPinCard = false
+        }
+    }
+    
+    private func navigateCurrentToDroppedPin() {
+        guard let pinCoord = droppedPinCoordinate else { return }
+        let title = droppedPinTitle.isEmpty ? "Điểm đã chọn" : droppedPinTitle
+        let subtitle = droppedPinSubtitle
+        
+        withAnimation {
+            pointB = RoutePointItem(
+                title: title,
+                subtitle: subtitle,
+                coordinate: pinCoord,
+                isCurrentLocation: false
+            )
+            dismissDroppedPin()
+            triggerRouteCalculation()
+        }
+    }
+    
+    private func setDroppedPinAsPointA() {
+        guard let pinCoord = droppedPinCoordinate else { return }
+        let title = droppedPinTitle.isEmpty ? "Điểm đã chọn" : droppedPinTitle
+        let subtitle = droppedPinSubtitle
+        
+        withAnimation {
+            pointA = RoutePointItem(
+                title: title,
+                subtitle: subtitle,
+                coordinate: pinCoord,
+                isCurrentLocation: false
+            )
+            dismissDroppedPin()
+            triggerRouteCalculation()
+        }
+    }
 }
 
 // MARK: - Lớp nạp ngói bản đồ OpenStreetMap tốc độ cao có bộ đệm và tự động phục hồi
@@ -723,7 +917,7 @@ public class CustomOSMTileOverlay: MKTileOverlay {
     }
 }
 
-// MARK: - View Bản đồ OpenStreetMap tương tác (Vẽ lộ trình Google Maps & Ghim Điểm A/B)
+// MARK: - View Bản đồ OpenStreetMap tương tác (Vẽ lộ trình Google Maps, Ghim Điểm A/B & Điểm nhấn giữ)
 public struct OSMMapView: UIViewRepresentable {
     @ObservedObject var navEngine: NavigationEngine
     @Binding var trackingMode: MapUserTrackingMode
@@ -731,6 +925,8 @@ public struct OSMMapView: UIViewRepresentable {
     var route: OSMRoute?
     var coordA: CLLocationCoordinate2D?
     var coordB: CLLocationCoordinate2D?
+    var droppedPinCoord: CLLocationCoordinate2D?
+    var onLocationLongPressed: ((CLLocationCoordinate2D) -> Void)?
     
     public init(
         navEngine: NavigationEngine,
@@ -738,7 +934,9 @@ public struct OSMMapView: UIViewRepresentable {
         orientationMode: MapOrientationMode = .headingTracking,
         route: OSMRoute?,
         coordA: CLLocationCoordinate2D? = nil,
-        coordB: CLLocationCoordinate2D? = nil
+        coordB: CLLocationCoordinate2D? = nil,
+        droppedPinCoord: CLLocationCoordinate2D? = nil,
+        onLocationLongPressed: ((CLLocationCoordinate2D) -> Void)? = nil
     ) {
         self.navEngine = navEngine
         self._trackingMode = trackingMode
@@ -746,6 +944,8 @@ public struct OSMMapView: UIViewRepresentable {
         self.route = route
         self.coordA = coordA
         self.coordB = coordB
+        self.droppedPinCoord = droppedPinCoord
+        self.onLocationLongPressed = onLocationLongPressed
     }
     
     public func makeUIView(context: Context) -> MKMapView {
@@ -754,6 +954,11 @@ public struct OSMMapView: UIViewRepresentable {
         mapView.showsUserLocation = true
         mapView.showsCompass = true
         mapView.showsScale = true
+        
+        // Thêm nhận diện cử chỉ nhấn giữ bản đồ để chọn địa điểm (Long Press to Drop Pin)
+        let longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.45
+        mapView.addGestureRecognizer(longPress)
         
         // Cấu hình ngói bản đồ OpenStreetMap ở level .aboveRoads
         let osmOverlay = CustomOSMTileOverlay()
@@ -769,6 +974,7 @@ public struct OSMMapView: UIViewRepresentable {
     
     public func updateUIView(_ uiView: MKMapView, context: Context) {
         context.coordinator.updateRoute(on: uiView, newRoute: route, coordA: coordA, coordB: coordB)
+        context.coordinator.updateDroppedPin(on: uiView, coord: droppedPinCoord)
         
         if trackingMode == .follow, let loc = navEngine.currentLocation {
             let speedKmh = max(0.0, loc.speed * 3.6)
@@ -848,10 +1054,41 @@ public struct OSMMapView: UIViewRepresentable {
         var parent: OSMMapView
         var currentPolyline: MKPolyline?
         var routeAnnotations: [MKAnnotation] = []
+        var droppedPinAnnotation: RoutePointAnnotation?
         private var lastRouteKey: String = ""
         
         init(_ parent: OSMMapView) {
             self.parent = parent
+        }
+        
+        @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+            guard gesture.state == .began else { return }
+            guard let mapView = gesture.view as? MKMapView else { return }
+            let point = gesture.location(in: mapView)
+            let coord = mapView.convert(point, toCoordinateFrom: mapView)
+            
+            let feedback = UIImpactFeedbackGenerator(style: .medium)
+            feedback.impactOccurred()
+            
+            DispatchQueue.main.async { [weak self] in
+                self?.parent.onLocationLongPressed?(coord)
+            }
+        }
+        
+        public func updateDroppedPin(on mapView: MKMapView, coord: CLLocationCoordinate2D?) {
+            if let existing = droppedPinAnnotation {
+                if existing.coordinate.latitude == coord?.latitude && existing.coordinate.longitude == coord?.longitude {
+                    return
+                }
+                mapView.removeAnnotation(existing)
+                droppedPinAnnotation = nil
+            }
+            
+            guard let c = coord else { return }
+            let pin = RoutePointAnnotation(coordinate: c, isPointA: false, isDroppedPin: true, title: "Địa điểm đã chọn", subtitle: "Nhấn giữ điểm khác để thay đổi")
+            droppedPinAnnotation = pin
+            mapView.addAnnotation(pin)
+            mapView.selectAnnotation(pin, animated: true)
         }
         
         public func mapView(_ mapView: MKMapView, regionWillChangeAnimated animated: Bool) {
@@ -887,7 +1124,7 @@ public struct OSMMapView: UIViewRepresentable {
                 return nil
             }
             guard let ptAnn = annotation as? RoutePointAnnotation else { return nil }
-            let id = "RoutePointMarker"
+            let id = ptAnn.isDroppedPin ? "DroppedPinMarker" : "RoutePointMarker"
             let view = (mapView.dequeueReusableAnnotationView(withIdentifier: id) as? MKMarkerAnnotationView)
                 ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: id)
             
@@ -896,6 +1133,10 @@ public struct OSMMapView: UIViewRepresentable {
             if ptAnn.isPointA {
                 view.markerTintColor = UIColor.systemGreen
                 view.glyphText = "A"
+            } else if ptAnn.isDroppedPin {
+                view.markerTintColor = UIColor.systemRed
+                view.glyphImage = UIImage(systemName: "mappin.circle.fill")
+                view.animatesWhenAdded = true
             } else {
                 view.markerTintColor = UIColor.systemRed
                 view.glyphText = "B"

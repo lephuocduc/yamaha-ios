@@ -229,6 +229,79 @@ public final class NavigationEngine: NSObject, ObservableObject {
         }.resume()
     }
     
+    // MARK: - Tra cứu tên địa điểm & địa chỉ từ tọa độ (Reverse Geocoding OpenStreetMap)
+    public func reverseGeocode(coordinate: CLLocationCoordinate2D, completion: @escaping (String, String) -> Void) {
+        let loc = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let geocoder = CLGeocoder()
+        
+        let urlString = "https://nominatim.openstreetmap.org/reverse?format=json&lat=\(coordinate.latitude)&lon=\(coordinate.longitude)&zoom=18&addressdetails=1&accept-language=vi"
+        guard let url = URL(string: urlString) else {
+            geocoder.reverseGeocodeLocation(loc) { placemarks, _ in
+                DispatchQueue.main.async {
+                    if let p = placemarks?.first {
+                        let title = p.name ?? p.thoroughfare ?? "Vị trí đã chọn"
+                        let subtitle = [p.subThoroughfare, p.thoroughfare, p.subLocality, p.locality, p.administrativeArea]
+                            .compactMap { $0 }
+                            .joined(separator: ", ")
+                        completion(title, subtitle.isEmpty ? String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude) : subtitle)
+                    } else {
+                        completion("Vị trí đã chọn", String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude))
+                    }
+                }
+            }
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.setValue("NConnect-Yamaha-iOS/1.0 (contact: info@mynmax.app)", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 6
+        
+        networkSession.dataTask(with: request) { data, response, error in
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let displayName = json["display_name"] as? String {
+                
+                let name = json["name"] as? String
+                let address = json["address"] as? [String: Any]
+                let road = address?["road"] as? String
+                let suburb = address?["suburb"] as? String ?? address?["quarter"] as? String
+                let city = address?["city"] as? String ?? address?["county"] as? String
+                
+                let title: String = {
+                    if let n = name, !n.isEmpty { return n }
+                    if let r = road, !r.isEmpty { return r }
+                    return displayName.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? "Vị trí đã chọn"
+                }()
+                
+                let subtitle: String = {
+                    var parts: [String] = []
+                    if let s = suburb, !s.isEmpty { parts.append(s) }
+                    if let c = city, !c.isEmpty { parts.append(c) }
+                    if !parts.isEmpty { return parts.joined(separator: ", ") }
+                    return displayName
+                }()
+                
+                DispatchQueue.main.async {
+                    completion(title, subtitle)
+                }
+            } else {
+                geocoder.reverseGeocodeLocation(loc) { placemarks, _ in
+                    DispatchQueue.main.async {
+                        if let p = placemarks?.first {
+                            let title = p.name ?? p.thoroughfare ?? "Vị trí đã chọn"
+                            let subtitle = [p.subThoroughfare, p.thoroughfare, p.subLocality, p.locality, p.administrativeArea]
+                                .compactMap { $0 }
+                                .joined(separator: ", ")
+                            completion(title, subtitle.isEmpty ? String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude) : subtitle)
+                        } else {
+                            completion("Vị trí đã chọn", String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude))
+                        }
+                    }
+                }
+            }
+        }.resume()
+    }
+    
     // MARK: - Tìm trạm xăng lân cận bằng OpenStreetMap (OSM Fuel Search)
     public func fetchNearbyGasStations() {
         guard let loc = currentLocation else { return }
