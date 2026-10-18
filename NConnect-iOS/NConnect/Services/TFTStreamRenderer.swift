@@ -512,8 +512,8 @@ public final class TFTStreamRenderer: ObservableObject {
             // 6. Nhãn bản quyền bắt buộc của OpenStreetMap (nhỏ gọn, thanh lịch)
             self.drawOSMAttribution(in: ctx, size: size)
             
-            // 7. La bàn mini định hướng trên xe máy (North / Heading indicator)
-            self.drawTFTCompass(in: ctx, size: size, heading: heading, isNorthUp: isNorth)
+            // 7. La bàn mini trên xe máy (Đã tắt theo yêu cầu: Bỏ hình la bàn trên màn hình chiếu lên xe)
+            // self.drawTFTCompass(in: ctx, size: size, heading: heading, isNorthUp: isNorth)
             
             let finalImage = UIGraphicsGetImageFromCurrentImageContext()
             UIGraphicsEndImageContext()
@@ -688,31 +688,41 @@ public final class TFTStreamRenderer: ObservableObject {
         
         // 1. Khi đang tự động vẽ lại lộ trình
         if isRerouting {
+            let rerouteFont = UIFont.systemFont(ofSize: 18, weight: .heavy)
+            let bannerHeight = ceil(rerouteFont.lineHeight) + 8.0
+            let bannerRect = CGRect(x: 0, y: 0, width: size.width, height: bannerHeight)
+            
             ctx.setFillColor(UIColor(red: 0.12, green: 0.08, blue: 0.02, alpha: 0.98).cgColor)
             ctx.fill(bannerRect)
             
             ctx.setStrokeColor(UIColor.systemYellow.cgColor)
-            ctx.setLineWidth(2.5)
+            ctx.setLineWidth(2.0)
             ctx.move(to: CGPoint(x: 0, y: bannerHeight))
             ctx.addLine(to: CGPoint(x: size.width, y: bannerHeight))
             ctx.strokePath()
             
             let text = "⚠️ ĐANG TÍNH LẠI LỘ TRÌNH MỚI..."
             let attrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 22, weight: .heavy),
+                .font: rerouteFont,
                 .foregroundColor: UIColor.systemYellow
             ]
-            text.draw(at: CGPoint(x: 16, y: 20), withAttributes: attrs)
+            let strSize = (text as NSString).size(withAttributes: attrs)
+            let textY = (bannerHeight - strSize.height) / 2.0
+            (text as NSString).draw(at: CGPoint(x: 12, y: textY), withAttributes: attrs)
             return
         }
         
         // 2. Khi đã đến điểm đích
         if instruction.hasArrived {
+            let arrivedFont = UIFont.systemFont(ofSize: 18, weight: .heavy)
+            let bannerHeight = ceil(arrivedFont.lineHeight) + 8.0
+            let bannerRect = CGRect(x: 0, y: 0, width: size.width, height: bannerHeight)
+            
             ctx.setFillColor(UIColor(red: 0.03, green: 0.15, blue: 0.06, alpha: 0.98).cgColor)
             ctx.fill(bannerRect)
             
             ctx.setStrokeColor(UIColor(red: 0.0, green: 1.0, blue: 0.45, alpha: 1.0).cgColor)
-            ctx.setLineWidth(2.5)
+            ctx.setLineWidth(2.0)
             ctx.move(to: CGPoint(x: 0, y: bannerHeight))
             ctx.addLine(to: CGPoint(x: size.width, y: bannerHeight))
             ctx.strokePath()
@@ -720,14 +730,84 @@ public final class TFTStreamRenderer: ObservableObject {
             let destText = instruction.destinationName.isEmpty ? "ĐIỂM ĐẾN" : instruction.destinationName
             let text = "🎯 ĐÃ ĐẾN NƠI: \(destText)"
             let attrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 22, weight: .heavy),
+                .font: arrivedFont,
                 .foregroundColor: UIColor(red: 0.0, green: 1.0, blue: 0.45, alpha: 1.0)
             ]
-            text.draw(at: CGPoint(x: 16, y: 20), withAttributes: attrs)
+            let strSize = (text as NSString).size(withAttributes: attrs)
+            let textY = (bannerHeight - strSize.height) / 2.0
+            (text as NSString).draw(at: CGPoint(x: 12, y: textY), withAttributes: attrs)
             return
         }
         
-        // 3. Khung nền đen sâu, chống chói ngoài trời với đường viền dưới màu xanh neon nổi bật
+        // 3. Chuẩn bị text điều hướng dạng: "36m turn right onto [nextRoadName]" (không sử dụng mũi tên)
+        let distStr = instruction.formattedDistanceCompact + " "
+        let actionStr = instruction.direction.actionPhraseEn + " "
+        let roadName = instruction.nextRoadName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let roadStr = roadName.isEmpty ? "" : roadName
+        
+        let availableWidth = size.width - 24.0 // Lề 12pt hai bên
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineBreakMode = .byTruncatingTail
+        
+        // Tự động tinh chỉnh cỡ chữ (22pt -> 20pt -> 18pt) để vừa vặn
+        var fontSize: CGFloat = 22.0
+        let fullPreviewText = "\(distStr)\(actionStr)\(roadStr)"
+        var testFont = UIFont.systemFont(ofSize: fontSize, weight: .bold)
+        var testWidth = (fullPreviewText as NSString).size(withAttributes: [.font: testFont]).width
+        if testWidth > availableWidth && fontSize > 18.0 {
+            fontSize = 20.0
+            testFont = UIFont.systemFont(ofSize: fontSize, weight: .bold)
+            testWidth = (fullPreviewText as NSString).size(withAttributes: [.font: testFont]).width
+        }
+        if testWidth > availableWidth && fontSize > 16.0 {
+            fontSize = 18.0
+            testFont = UIFont.systemFont(ofSize: fontSize, weight: .bold)
+        }
+        
+        let fontBold = UIFont.systemFont(ofSize: fontSize, weight: .bold)
+        let fontHeavy = UIFont.systemFont(ofSize: fontSize, weight: .heavy)
+        let neonGreen = UIColor(red: 0.0, green: 1.0, blue: 0.45, alpha: 1.0)
+        
+        let navText = NSMutableAttributedString()
+        // Cụm cự ly: ví dụ "36m " (Heavy Neon Green)
+        navText.append(NSAttributedString(
+            string: distStr,
+            attributes: [
+                .font: fontHeavy,
+                .foregroundColor: neonGreen,
+                .paragraphStyle: paragraphStyle
+            ]
+        ))
+        
+        // Cụm hành động rẽ: ví dụ "turn right onto " (Bold Neon Green)
+        navText.append(NSAttributedString(
+            string: actionStr,
+            attributes: [
+                .font: fontBold,
+                .foregroundColor: neonGreen,
+                .paragraphStyle: paragraphStyle
+            ]
+        ))
+        
+        // Cụm tên đường: ví dụ "Pasteur" (Bold Trắng sáng)
+        if !roadStr.isEmpty {
+            navText.append(NSAttributedString(
+                string: roadStr,
+                attributes: [
+                    .font: fontBold,
+                    .foregroundColor: UIColor.white,
+                    .paragraphStyle: paragraphStyle
+                ]
+            ))
+        }
+        
+        // Chiều cao dãy đen fit khít với chiều cao của chữ (+ 8pt padding)
+        let textBoundingSize = navText.size()
+        let textHeight = ceil(textBoundingSize.height)
+        let bannerHeight: CGFloat = textHeight + 8.0
+        let bannerRect = CGRect(x: 0, y: 0, width: size.width, height: bannerHeight)
+        
+        // Khung nền đen sâu, chống chói ngoài trời
         ctx.setFillColor(UIColor(red: 0.04, green: 0.06, blue: 0.09, alpha: 0.98).cgColor)
         ctx.fill(bannerRect)
         
@@ -738,53 +818,10 @@ public final class TFTStreamRenderer: ObservableObject {
         ctx.addLine(to: CGPoint(x: size.width, y: bannerHeight))
         ctx.strokePath()
         
-        // Mũi tên chỉ hướng rẽ (Kích thước lớn 46x46 căn giữa theo chiều cao dải đen 62px)
-        let arrowSymbol = instruction.direction.iconName
-        if let arrowImage = UIImage(systemName: arrowSymbol)?.withTintColor(UIColor(red: 0.0, green: 1.0, blue: 0.45, alpha: 1.0), renderingMode: .alwaysOriginal) {
-            arrowImage.draw(in: CGRect(x: 8, y: 8, width: 46, height: 46))
-        }
-        
-        // Text hướng dẫn chính: Phóng bự chiếm trọn chiều ngang dải đen (đã dời ETA xuống footer)
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineBreakMode = .byTruncatingTail
-        
-        let textStartX: CGFloat = 62.0
-        let availableTextWidth = size.width - textStartX - 10.0 // 480 - 62 - 10 = 408pt rộng thênh thang cho tên đường dài
-        let mainTextRect = CGRect(x: textStartX, y: 7, width: availableTextWidth, height: 48)
-        
-        let navText = NSMutableAttributedString()
-        
-        // 1. Khoảng cách còn lại tới ngã rẽ (Cỡ chữ cực to 36pt Heavy, Xanh Neon)
-        navText.append(NSAttributedString(
-            string: instruction.formattedDistance + " ",
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 36, weight: .heavy),
-                .foregroundColor: UIColor(red: 0.0, green: 1.0, blue: 0.45, alpha: 1.0),
-                .paragraphStyle: paragraphStyle
-            ]
-        ))
-        
-        // 2. Tên đường tiếp theo (Cỡ chữ to 28pt Bold, Trắng sáng; tự động co nhẹ nếu tên quá dài)
-        let roadName = instruction.nextRoadName.isEmpty ? "Đi theo lộ trình" : instruction.nextRoadName
-        let roadFontSize: CGFloat
-        if roadName.count > 28 {
-            roadFontSize = 24.0
-        } else if roadName.count > 20 {
-            roadFontSize = 26.0
-        } else {
-            roadFontSize = 28.0
-        }
-        
-        navText.append(NSAttributedString(
-            string: "· \(roadName)",
-            attributes: [
-                .font: UIFont.systemFont(ofSize: roadFontSize, weight: .bold),
-                .foregroundColor: UIColor.white,
-                .paragraphStyle: paragraphStyle
-            ]
-        ))
-        
-        navText.draw(in: mainTextRect)
+        // Vẽ chữ căn giữa theo chiều dọc của dãy đen
+        let textY = (bannerHeight - textHeight) / 2.0
+        let textRect = CGRect(x: 12.0, y: textY, width: availableWidth, height: textHeight)
+        navText.draw(in: textRect)
     }
     
     // MARK: - Nhãn bản quyền OpenStreetMap

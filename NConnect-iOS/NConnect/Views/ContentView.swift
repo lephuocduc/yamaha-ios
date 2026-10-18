@@ -75,43 +75,91 @@ public struct ContentView: View {
                 }
             }
             ccuManager.onFindGasStation = { [weak navEngine, weak ccuManager] in
-                guard let nav = navEngine else { return }
-                ccuManager?.log("⛽ Menu xe: Đang tìm cây xăng gần nhất...")
+                guard let nav = navEngine, let ccu = ccuManager else { return }
+                ccu.log("⛽ Menu xe: Đang tìm kiếm các cây xăng gần xe nhất...")
                 let center = nav.currentLocation?.coordinate ?? CLLocationCoordinate2D(latitude: 10.7769, longitude: 106.7009)
-                SavedPlacesManager.shared.findNearestGasStation(near: center) { station in
+                
+                // 1. Nếu đã có sẵn danh sách cây xăng gần đây trong NavigationEngine, gửi ngay lập tức
+                if !nav.nearbyGasStations.isEmpty {
+                    let items = nav.nearbyGasStations.map { (name: $0.title, coordinate: CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)) }
+                    ccu.sendPoiListToTFT(listId: 4, items: items, currentLoc: center)
+                    if let first = items.first {
+                        ccu.log("⛽ Menu xe: Tự động dẫn đường tới cây xăng gần nhất -> \(first.name)")
+                        nav.calculateRoute(to: first.coordinate, destinationTitle: first.name)
+                    }
+                    return
+                }
+                
+                // 2. Tìm kiếm mới qua SavedPlacesManager (MKPointOfInterestFilter [.gasStation])
+                SavedPlacesManager.shared.findNearbyGasStationsList(near: center) { stations in
                     DispatchQueue.main.async {
-                        if let station = station {
-                            ccuManager?.log("⛽ Menu xe: Tìm thấy cây xăng -> \(station.name)")
-                            nav.calculateRoute(to: station.coordinate, destinationTitle: station.name)
+                        if !stations.isEmpty {
+                            let items = stations.map { (name: $0.name, coordinate: $0.coordinate) }
+                            ccu.sendPoiListToTFT(listId: 4, items: items, currentLoc: center)
+                            if let first = items.first {
+                                ccu.log("⛽ Menu xe: Tự động dẫn đường tới cây xăng gần nhất -> \(first.name)")
+                                nav.calculateRoute(to: first.coordinate, destinationTitle: first.name)
+                            }
                         } else {
-                            ccuManager?.log("⚠️ Menu xe: Không tìm thấy cây xăng gần đây")
+                            ccu.log("⚠️ Menu xe: Không tìm thấy cây xăng gần đây")
+                            ccu.sendPoiListToTFT(listId: 4, items: [], currentLoc: center)
+                            AppNotificationManager.shared.postNotification(
+                                appName: "NConnect",
+                                sender: "Tìm cây xăng",
+                                message: "Không tìm thấy trạm xăng nào trong bán kính gần đây."
+                            )
                         }
                     }
                 }
             }
             ccuManager.onOpenFavorites = { [weak navEngine, weak ccuManager] in
-                guard let nav = navEngine else { return }
-                let favCoord = SavedPlacesManager.shared.favoritePlaces.first?.coordinate ?? nav.favoriteLocations.first?.coordinate
-                let favTitle = SavedPlacesManager.shared.favoritePlaces.first?.name ?? nav.favoriteLocations.first?.title ?? "Mục yêu thích"
-                if let coord = favCoord {
-                    ccuManager?.log("⭐ Menu xe: Dẫn đường tới mục Yêu thích -> \(favTitle)")
-                    nav.calculateRoute(to: coord, destinationTitle: favTitle)
-                } else {
-                    ccuManager?.log("⚠️ Menu xe: Chưa lưu địa điểm Yêu thích nào")
+                guard let nav = navEngine, let ccu = ccuManager else { return }
+                let center = nav.currentLocation?.coordinate
+                var favs: [(name: String, coordinate: CLLocationCoordinate2D)] = []
+                for p in SavedPlacesManager.shared.favoritePlaces {
+                    favs.append((name: p.name, coordinate: p.coordinate))
+                }
+                if favs.isEmpty {
+                    for loc in nav.favoriteLocations {
+                        favs.append((name: loc.title, coordinate: CLLocationCoordinate2D(latitude: loc.latitude, longitude: loc.longitude)))
+                    }
+                }
+                
+                if !favs.isEmpty {
+                    ccu.log("⭐ Menu xe: Gửi danh sách \(favs.count) mục Yêu thích lên đồng hồ xe...")
+                    ccu.sendPoiListToTFT(listId: 3, items: favs, currentLoc: center)
+                    if favs.count == 1, let first = favs.first {
+                        ccu.log("⭐ Menu xe: Chỉ có 1 mục Yêu thích -> Tự động dẫn đường tới: \(first.name)")
+                        nav.calculateRoute(to: first.coordinate, destinationTitle: first.name)
+                    }
+                    ccu.log("⚠️ Menu xe: Chưa lưu địa điểm Yêu thích nào")
+                    ccu.sendPoiListToTFT(listId: 3, items: [], currentLoc: center)
+                    AppNotificationManager.shared.postNotification(
+                        appName: "NConnect",
+                        sender: "Mục Yêu thích",
+                        message: "Vào Cài đặt để thêm các địa điểm Yêu thích."
+                    )
                 }
             }
             ccuManager.onSelectPoi = { [weak navEngine, weak ccuManager] index, listId in
-                guard let nav = navEngine else { return }
+                guard let nav = navEngine, let ccu = ccuManager else { return }
                 if listId == 3 {
-                    let favs = SavedPlacesManager.shared.favoritePlaces
+                    // Chọn mục từ danh sách Yêu thích
+                    let favs = ccu.lastSentFavorites.isEmpty
+                        ? SavedPlacesManager.shared.favoritePlaces.map { (name: $0.name, coordinate: $0.coordinate) }
+                        : ccu.lastSentFavorites
                     if index >= 0 && index < favs.count {
                         let place = favs[index]
-                        ccuManager?.log("⭐ Menu xe: Chọn mục yêu thích #\(index): \(place.name)")
+                        ccu.log("⭐ Menu xe: Đã chọn mục Yêu thích #\(index): \(place.name)")
                         nav.calculateRoute(to: place.coordinate, destinationTitle: place.name)
-                    } else if index >= 0 && index < nav.favoriteLocations.count {
-                        let loc = nav.favoriteLocations[index]
-                        ccuManager?.log("⭐ Menu xe: Chọn mục yêu thích #\(index): \(loc.title)")
-                        nav.calculateRoute(to: loc.coordinate, destinationTitle: loc.title)
+                    }
+                } else if listId == 4 {
+                    // Chọn mục từ danh sách Trạm xăng
+                    let stations = ccu.lastSentGasStations
+                    if index >= 0 && index < stations.count {
+                        let station = stations[index]
+                        ccu.log("⛽ Menu xe: Đã chọn cây xăng #\(index): \(station.name)")
+                        nav.calculateRoute(to: station.coordinate, destinationTitle: station.name)
                     }
                 }
             }

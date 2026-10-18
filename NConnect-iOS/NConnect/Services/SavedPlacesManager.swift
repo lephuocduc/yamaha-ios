@@ -168,58 +168,89 @@ public final class SavedPlacesManager: ObservableObject {
         self.favoritePlaces.removeAll { $0.id == id }
     }
     
-    // MARK: - Tìm cây xăng gần nhất sử dụng Apple MapKit (MKLocalSearch)
-    public func findNearestGasStation(near center: CLLocationCoordinate2D, completion: @escaping (SavedPlace?) -> Void) {
+    // MARK: - Tìm danh sách cây xăng gần nhất sử dụng Apple MapKit (MKLocalSearch)
+    public func findNearbyGasStationsList(near center: CLLocationCoordinate2D, completion: @escaping ([SavedPlace]) -> Void) {
         self.isSearchingGasStation = true
         
         let request = MKLocalSearch.Request()
-        request.naturalLanguageQuery = "Cây xăng"
-        request.region = MKCoordinateRegion(center: center, latitudinalMeters: 6000, longitudinalMeters: 6000)
+        request.naturalLanguageQuery = "Trạm xăng"
+        if #available(iOS 13.0, *) {
+            request.pointOfInterestFilter = MKPointOfInterestFilter(including: [.gasStation])
+        }
+        request.region = MKCoordinateRegion(center: center, latitudinalMeters: 10000, longitudinalMeters: 10000)
         
         let search = MKLocalSearch(request: request)
         search.start { [weak self] response, error in
-            DispatchQueue.main.async {
-                self?.isSearchingGasStation = false
-                guard let mapItems = response?.mapItems, !mapItems.isEmpty else {
-                    // Thử tìm lại bằng từ khoá tiếng Anh "Petrol station" nếu tiếng Việt không ra
-                    self?.searchFallbackGasStation(near: center, completion: completion)
+            let items = response?.mapItems ?? []
+            if !items.isEmpty {
+                DispatchQueue.main.async {
+                    self?.isSearchingGasStation = false
+                    let places = self?.processMapItemsToPlaces(items, center: center) ?? []
+                    completion(places)
+                }
+                return
+            }
+            
+            // Thử lại với "Cây xăng"
+            let req2 = MKLocalSearch.Request()
+            req2.naturalLanguageQuery = "Cây xăng"
+            if #available(iOS 13.0, *) {
+                req2.pointOfInterestFilter = MKPointOfInterestFilter(including: [.gasStation])
+            }
+            req2.region = MKCoordinateRegion(center: center, latitudinalMeters: 10000, longitudinalMeters: 10000)
+            let search2 = MKLocalSearch(request: req2)
+            search2.start { resp2, _ in
+                let items2 = resp2?.mapItems ?? []
+                if !items2.isEmpty {
+                    DispatchQueue.main.async {
+                        self?.isSearchingGasStation = false
+                        let places = self?.processMapItemsToPlaces(items2, center: center) ?? []
+                        completion(places)
+                    }
                     return
                 }
                 
-                let sortedItems = mapItems.sorted { item1, item2 in
-                    let loc1 = CLLocation(latitude: item1.placemark.coordinate.latitude, longitude: item1.placemark.coordinate.longitude)
-                    let loc2 = CLLocation(latitude: item2.placemark.coordinate.latitude, longitude: item2.placemark.coordinate.longitude)
-                    let centerLoc = CLLocation(latitude: center.latitude, longitude: center.longitude)
-                    return loc1.distance(from: centerLoc) < loc2.distance(from: centerLoc)
+                // Fallback với "Gas station"
+                let req3 = MKLocalSearch.Request()
+                req3.naturalLanguageQuery = "Gas station"
+                if #available(iOS 13.0, *) {
+                    req3.pointOfInterestFilter = MKPointOfInterestFilter(including: [.gasStation])
                 }
-                
-                if let closest = sortedItems.first {
-                    let title = closest.name ?? "Trạm xăng"
-                    let addr = closest.placemark.title ?? ""
-                    let station = SavedPlace(name: title, address: addr, coordinate: closest.placemark.coordinate)
-                    completion(station)
-                } else {
-                    completion(nil)
+                req3.region = MKCoordinateRegion(center: center, latitudinalMeters: 10000, longitudinalMeters: 10000)
+                let search3 = MKLocalSearch(request: req3)
+                search3.start { resp3, _ in
+                    DispatchQueue.main.async {
+                        self?.isSearchingGasStation = false
+                        let items3 = resp3?.mapItems ?? []
+                        let places = self?.processMapItemsToPlaces(items3, center: center) ?? []
+                        completion(places)
+                    }
                 }
             }
         }
     }
     
-    private func searchFallbackGasStation(near center: CLLocationCoordinate2D, completion: @escaping (SavedPlace?) -> Void) {
-        let request = MKLocalSearch.Request()
-        request.naturalLanguageQuery = "Gas station"
-        request.region = MKCoordinateRegion(center: center, latitudinalMeters: 8000, longitudinalMeters: 8000)
-        let search = MKLocalSearch(request: request)
-        search.start { response, error in
-            DispatchQueue.main.async {
-                guard let mapItems = response?.mapItems, let closest = mapItems.first else {
-                    completion(nil)
-                    return
-                }
-                let title = closest.name ?? "Trạm xăng"
-                let station = SavedPlace(name: title, address: closest.placemark.title ?? "", coordinate: closest.placemark.coordinate)
-                completion(station)
-            }
+    private func processMapItemsToPlaces(_ mapItems: [MKMapItem], center: CLLocationCoordinate2D) -> [SavedPlace] {
+        let centerLoc = CLLocation(latitude: center.latitude, longitude: center.longitude)
+        let sorted = mapItems.sorted { item1, item2 in
+            let d1 = centerLoc.distance(from: CLLocation(latitude: item1.placemark.coordinate.latitude, longitude: item1.placemark.coordinate.longitude))
+            let d2 = centerLoc.distance(from: CLLocation(latitude: item2.placemark.coordinate.latitude, longitude: item2.placemark.coordinate.longitude))
+            return d1 < d2
+        }
+        
+        var places: [SavedPlace] = []
+        for item in sorted.prefix(20) {
+            let title = item.name ?? "Trạm xăng"
+            let addr = item.placemark.title ?? item.placemark.thoroughfare ?? ""
+            places.append(SavedPlace(name: title, address: addr, coordinate: item.placemark.coordinate))
+        }
+        return places
+    }
+    
+    // MARK: - Tìm cây xăng gần nhất
+    public func findNearestGasStation(near center: CLLocationCoordinate2D, completion: @escaping (SavedPlace?) -> Void) {
+        findNearbyGasStationsList(near: center) { list in
+            completion(list.first)
         }
     }
 }

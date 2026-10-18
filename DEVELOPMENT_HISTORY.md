@@ -322,6 +322,7 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
   5. **Tìm kiếm trạm xăng (Gas Station Search)**:
      - Thay thế hoàn toàn API OpenStreetMap Nominatim (vốn bị rate-limit và trả về rỗng) bằng Apple MapKit `MKLocalSearch` (`"Cây xăng"` / `"Trạm xăng"`). Tìm kiếm tức thì trong bán kính 12km với đầy đủ tên thương hiệu (Petrolimex, PV Oil, Comeco...), địa chỉ và cự ly di chuyển.
 
+
 ---
 
 ### 🔴 TÍNH NĂNG 17: Tinh giản hóa & Loại bỏ Thông báo / Cuộc gọi & Dữ liệu ECU/Pin theo yêu cầu (v0.5.22 Build 48)
@@ -361,7 +362,6 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
 
 ---
 
-
 ### 🚀 TÍNH NĂNG 19: Lập lộ trình đa điểm dừng (Multi-Stop), sắp xếp thứ tự linh hoạt và đánh nhãn trực quan (v0.5.24)
 * **Yêu cầu & Mục tiêu**:
   1. Cho phép người dùng thêm nhiều điểm dừng trung gian giữa Điểm xuất phát (A) và Điểm đến (B).
@@ -383,6 +383,34 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
     - Chế độ dọc (Portrait): Hiển thị điểm A, danh sách điểm dừng 1, 2... có nút mũi tên lên/xuống và xóa, nút "+ Điểm dừng", và điểm B.
     - Chế độ ngang (Landscape): Thanh công cụ tinh gọn hiển thị A, B, nút "+ Thêm điểm dừng" và danh sách chip điểm dừng cuộn ngang với đầy đủ nút đảo thứ tự.
   - **NavigationEngine**: Cập nhật `calculateRoute`, `requestValhallaRoutes`, `parseValhallaTrip`, và `fallbackOSRMRoutes` hỗ trợ mảng `intermediateStops: [CLLocationCoordinate2D]`. Xử lý ghép nối đa phân đoạn (`legs`) với offset index và polyline chính xác.
+
+---
+
+### 🔴 TÍNH NĂNG 20: Giao thức danh sách POI (Service 7/8 & 98/99), Loại bỏ la bàn & Tối ưu Header chỉ dẫn (v0.5.25)
+* **Các cải tiến và sửa lỗi chi tiết**:
+  1. **Loại bỏ icon la bàn trên màn hình chiếu TFT**:
+     - Vô hiệu hoá lệnh `drawTFTCompass` trong `TFTStreamRenderer.swift`. Màn hình chiếu bản đồ trên xe máy hoàn toàn thông thoáng, loại bỏ chi tiết thừa, tập trung vào lộ trình và mũi tên xe.
+  2. **Khắc phục nút bấm Tìm trạm xăng (Gas Station) và Mục yêu thích (Favorites) trên menu cùm xe**:
+     - *Hiện tượng*: Khi chọn Gas Station hoặc Favorites trên menu xe máy, màn hình xe quay vòng chờ tải hoặc không có phản hồi dẫn đường.
+     - *Phân tích dịch ngược DEX (`classes.dex` - `Lm3/r;`, `Lj3/v;`, `Lo3/c;`)*:
+       - Khi rider chọn menu xe, xe gửi gói `case 55` (`0x37`) kèm `payload[0]`: `sub = 3` (Favorites) hoặc `sub = 4` (Gas Station).
+       - Trước đây code phản hồi nhầm gói `NaviLite.frame(6, 14, 1, [0x07, 0x1A, 0x00, 0x00])` - đây là gói xoá text thanh trạng thái (Service 14), gây nghẽn và xung đột trạng thái menu của màn hình xe.
+       - Chuẩn Garmin StreetCross yêu cầu điện thoại trả về danh sách POI theo 2 bước:
+         - **Bước 1 (Header)**: Gửi Service 7 (Favorites) hoặc Service 8 (Gas Station) với payload `[count_low, count_high, 0]` khai báo tổng số lượng địa điểm.
+         - **Bước 2 (Item Frame)**: Gửi từng mục qua Service 98 (Favorites) hoặc Service 99 (Gas Station) với cấu trúc nhị phân:
+           `[idx(2B LE), bearing(2B LE), icon(1B), nameLen(1B), distStrLen(1B), floatDist(4B LE), distStrBytes, nameBytes]`.
+       - Khi rider duyệt và chọn mục trên xe máy, xe gửi gói `case 48` (`0x30`) kèm `[itemIndex, listId]`.
+     - *Giải pháp triển khai*:
+       - Bổ sung hàm `sendPoiListToTFT(listId:items:currentLoc:)` trong `YamahaCCUManager.swift`.
+       - Bổ sung `findNearbyGasStationsList(near:center:)` trong `SavedPlacesManager.swift` dùng `MKLocalSearch` kết hợp bộ lọc `MKPointOfInterestFilter(including: [.gasStation])`.
+       - Kết nối xử lý tự động trong `ContentView.swift`: Truyền danh sách tối đa 20 điểm lên xe, đồng thời tự động kích hoạt tính toán lộ trình dẫn đường ngay đến địa điểm gần nhất.
+  3. **Chiều cao dãy đen Header fit khít với chiều cao chữ**:
+     - Thay thế chiều cao cố định `62.0pt` bằng chiều cao động: `ceil(navText.size().height) + 8.0pt` (~32-36pt). Dãy đen ôm sát vừa vặn dòng text, gia tăng diện tích hiển thị bản đồ điều hướng.
+  4. **Định dạng chỉ dẫn Header không dùng mũi tên (`36m turn right onto ...`)**:
+     - Loại bỏ việc vẽ mũi tên icon SF Symbol trong banner trên cùng.
+     - Bổ sung `actionPhraseEn` vào `NavigationDirection` (ví dụ: `turn right onto`, `turn left onto`, `straight onto`...).
+     - Bổ sung `formattedDistanceCompact` (`36m`, `1.2km`) và `headerTurnText` vào `NavigationInstruction`.
+     - Định dạng trực quan với phối màu tương phản cao: Cụm cự ly + hành động rẽ (`36m turn right onto `) màu Xanh Neon (`#00FF73`), tên đường (`Pasteur`) màu Trắng sáng (`#FFFFFF`), tự động co giãn kích thước font chữ (22pt -> 20pt -> 18pt) khi gặp tên đường dài.
 
 ---
 

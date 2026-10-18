@@ -122,6 +122,10 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
     public var onOpenFavorites: (() -> Void)?
     public var onSelectPoi: ((Int, Int) -> Void)?
     
+    // Lưu trữ danh sách POI gần nhất đã gửi lên xe (Mã 3 = Favorites, Mã 4 = Gas stations)
+    public var lastSentFavorites: [(name: String, coordinate: CLLocationCoordinate2D)] = []
+    public var lastSentGasStations: [(name: String, coordinate: CLLocationCoordinate2D)] = []
+    
     private var centralManager: CBCentralManager!
     private var currentPeripheral: CBPeripheral?
     private var ddtWriteChar: CBCharacteristic?
@@ -428,7 +432,6 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                 case 55:
                     let sub = f.payload.count > 0 ? f.payload[0] : 1
                     log("Menu đồng hồ xe: Mở danh sách (55, sub \(sub))")
-                    writeEAData(NaviLite.frame(6, 14, 1, [0x07, 0x1A, 0x00, 0x00]))
                     DispatchQueue.main.async {
                         if sub == 3 {
                             self.onOpenFavorites?()
@@ -444,7 +447,6 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     let itemIndex = f.payload.count > 0 ? Int(f.payload[0]) : 0
                     let listId = f.payload.count > 1 ? Int(f.payload[1]) : 0
                     log("Menu đồng hồ xe: Chọn mục \(itemIndex) của danh sách \(listId) (48)")
-                    writeEAData(NaviLite.frame(6, 14, 1, [0x07, 0x1A, 0x00, 0x00]))
                     DispatchQueue.main.async {
                         self.onSelectPoi?(itemIndex, listId)
                     }
@@ -723,6 +725,92 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         log("Cập nhật trạng thái Menu xe: Nhà = \(hasHome ? "Bật" : "Tắt"), Chỗ làm = \(hasWork ? "Bật" : "Tắt")")
         writeEAData(NaviLite.frame(6, 10, 0, [hasHome ? 1 : 0, 0]))
         writeEAData(NaviLite.frame(6, 11, 0, [hasWork ? 1 : 0, 0]))
+    }
+    
+    // MARK: - Gửi danh sách POI (Yêu thích / Trạm xăng) lên menu màn hình TFT xe máy (Chuẩn Garmin StreetCross Service 7/8 & 98/99)
+    public func sendPoiListToTFT(listId: Int, items: [(name: String, coordinate: CLLocationCoordinate2D)], currentLoc: CLLocationCoordinate2D?) {
+        guard isMFiConnected && eaOutput != nil else {
+            if listId == 3 {
+                self.lastSentFavorites = items
+            } else {
+                self.lastSentGasStations = items
+            }
+            return
+        }
+        
+        let maxItems = min(items.count, 20)
+        let headerService = (listId == 3) ? 7 : 8
+        let itemService = (listId == 3) ? 98 : 99
+        
+        if listId == 3 {
+            self.lastSentFavorites = Array(items.prefix(maxItems))
+        } else {
+            self.lastSentGasStations = Array(items.prefix(maxItems))
+        }
+        
+        // 1. Gửi gói tin Header khai báo số lượng mục: [count_low, count_high, 0]
+        let countPayload: [UInt8] = [UInt8(maxItems & 0xff), UInt8((maxItems >> 8) & 0xff), 0]
+        writeEAData(NaviLite.frame(6, headerService, 1, countPayload))
+        log("Gửi Header danh sách \(listId == 3 ? "Yêu thích" : "Trạm xăng") (svc \(headerService)): \(maxItems) mục")
+        
+        guard maxItems > 0 else { return }
+        
+        let userLoc = currentLoc != nil ? CLLocation(latitude: currentLoc!.latitude, longitude: currentLoc!.longitude) : nil
+        
+        // 2. Gửi từng mục POI (Service 98 / 99)
+        for i in 0..<maxItems {
+            let item = items[i]
+            let itemLoc = CLLocation(latitude: item.coordinate.latitude, longitude: item.coordinate.longitude)
+            
+            let distMeters: Double = userLoc != nil ? userLoc!.distance(from: itemLoc) : 0.0
+            let distStr: String
+            if distMeters < 1000 {
+                distStr = "\(Int(round(distMeters))) m"
+            } else {
+                distStr = String(format: "%.1f km", distMeters / 1000.0)
+            }
+            
+            var bearingInt: Int = 0
+            if let u = currentLoc {
+                let lat1 = u.latitude * .pi / 180.0
+                let lon1 = u.longitude * .pi / 180.0
+                let lat2 = item.coordinate.latitude * .pi / 180.0
+                let lon2 = item.coordinate.longitude * .pi / 180.0
+                let dLon = lon2 - lon1
+                let y = sin(dLon) * cos(lat2)
+                let x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
+                var deg = atan2(y, x) * 180.0 / .pi
+                if deg < 0 { deg += 360.0 }
+                bearingInt = Int(round(deg)) % 360
+            }
+            
+            let cleanName = cleanVietnameseForGarmin(item.name).uppercased()
+            let cleanDist = distStr
+            
+            guard let nameData = cleanName.data(using: .utf8),
+                  let distData = cleanDist.data(using: .utf8) else { continue }
+            
+            var p = Data()
+            p.append(UInt8(i & 0xff))
+            p.append(UInt8((i >> 8) & 0xff))
+            p.append(UInt8(bearingInt & 0xff))
+            p.append(UInt8((bearingInt >> 8) & 0xff))
+            p.append(UInt8(1)) // icon/type
+            p.append(UInt8(min(nameData.count, 144)))
+            p.append(UInt8(min(distData.count, 144)))
+            
+            let floatDistBits = Float(distMeters).bitPattern
+            p.append(UInt8(floatDistBits & 0xff))
+            p.append(UInt8((floatDistBits >> 8) & 0xff))
+            p.append(UInt8((floatDistBits >> 16) & 0xff))
+            p.append(UInt8((floatDistBits >> 24) & 0xff))
+            
+            p.append(distData.prefix(144))
+            p.append(nameData.prefix(144))
+            
+            writeEAData(NaviLite.frame(6, itemService, 1, [UInt8](p)))
+        }
+        log("Đã gửi trọn bộ \(maxItems) mục của danh sách \(listId == 3 ? "Yêu thích" : "Trạm xăng") (svc \(itemService)) lên xe")
     }
     
     public func cleanVietnameseForGarmin(_ str: String) -> String {

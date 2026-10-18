@@ -129,6 +129,21 @@ public enum NavigationDirection: Int {
         case .destination: return "Đến điểm đích"
         }
     }
+    
+    public var actionPhraseEn: String {
+        switch self {
+        case .straight: return "straight onto"
+        case .slightRight: return "slight right onto"
+        case .right: return "turn right onto"
+        case .sharpRight: return "sharp right onto"
+        case .uTurn: return "make U-turn onto"
+        case .sharpLeft: return "sharp left onto"
+        case .left: return "turn left onto"
+        case .slightLeft: return "slight left onto"
+        case .roundabout: return "enter roundabout onto"
+        case .destination: return "arrive at"
+        }
+    }
 }
 
 // MARK: - Chỉ dẫn điều hướng Turn-by-Turn
@@ -153,6 +168,41 @@ public struct NavigationInstruction {
         } else {
             return String(format: "%.1f km", Double(distanceMeters) / 1000.0)
         }
+    }
+    
+    public var formattedDistanceCompact: String {
+        if distanceMeters < 1000 {
+            return "\(distanceMeters)m"
+        } else {
+            return String(format: "%.1fkm", Double(distanceMeters) / 1000.0)
+        }
+    }
+    
+    public var headerTurnText: String {
+        let dist = formattedDistanceCompact
+        let action = direction.actionPhraseEn
+        let road = nextRoadName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if direction == .destination {
+            let dest = destinationName.isEmpty ? "destination" : destinationName
+            return "\(dist) \(action) \(dest)"
+        }
+        if road.isEmpty {
+            let actionOnly: String
+            switch direction {
+            case .straight: actionOnly = "go straight"
+            case .slightRight: actionOnly = "slight right"
+            case .right: actionOnly = "turn right"
+            case .sharpRight: actionOnly = "sharp right"
+            case .uTurn: actionOnly = "make U-turn"
+            case .sharpLeft: actionOnly = "sharp left"
+            case .left: actionOnly = "turn left"
+            case .slightLeft: actionOnly = "slight left"
+            case .roundabout: actionOnly = "enter roundabout"
+            case .destination: actionOnly = "arrive at destination"
+            }
+            return "\(dist) \(actionOnly)"
+        }
+        return "\(dist) \(action) \(road)"
     }
     
     public var formattedRemainingDistance: String {
