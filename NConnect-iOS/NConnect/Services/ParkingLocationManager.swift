@@ -166,7 +166,7 @@ public final class ParkingLocationManager: ObservableObject {
         }
         
         let initialAddress = explicitAddress ?? String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude)
-        let newLocation = ParkedBikeLocation(
+        var newLocation = ParkedBikeLocation(
             coordinate: coordinate,
             timestamp: effectiveTimestamp,
             address: initialAddress,
