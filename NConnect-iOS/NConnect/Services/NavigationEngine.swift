@@ -463,6 +463,9 @@ public final class NavigationEngine: NSObject, ObservableObject {
         self.updateCurrentInstruction()
         if let loc = currentLocation {
             self.updateRemainingDistanceAndETA(currentLoc: loc)
+            if !TripHistoryManager.shared.isRecordingSession {
+                TripHistoryManager.shared.startTripSession(at: loc.coordinate, bikeName: "Yamaha NMAX")
+            }
         }
     }
     
@@ -1058,6 +1061,12 @@ public final class NavigationEngine: NSObject, ObservableObject {
         currentInstruction = inst
         
         onNavigationStopped?()
+        
+        if let ccu = YamahaCCUManager.shared, !ccu.isMFiConnected && ccu.state != .connected {
+            if TripHistoryManager.shared.isRecordingSession {
+                TripHistoryManager.shared.endTripSession(at: currentLocation?.coordinate)
+            }
+        }
     }
     
     private func updateCurrentInstruction() {
@@ -1205,6 +1214,9 @@ extension NavigationEngine: CLLocationManagerDelegate {
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let loc = locations.last else { return }
         currentLocation = loc
+        
+        // Cập nhật vị trí vào bộ theo dõi lộ trình TripHistoryManager
+        TripHistoryManager.shared.updateLocation(loc)
         
         // Cập nhật tên con đường xe đang chạy thực tế (ngay cả khi chạy tự do)
         checkCurrentRoadName(at: loc)

@@ -412,6 +412,30 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
      - Bổ sung `formattedDistanceCompact` (`36m`, `1.2km`) và `headerTurnText` vào `NavigationInstruction`.
      - Định dạng trực quan với phối màu tương phản cao: Cụm cự ly + hành động rẽ (`36m turn right onto `) màu Xanh Neon (`#00FF73`), tên đường (`Pasteur`) màu Trắng sáng (`#FFFFFF`), tự động co giãn kích thước font chữ (22pt -> 20pt -> 18pt) khi gặp tên đường dài.
 
+
+---
+
+### 🔴 TÍNH NĂNG 21: Mặc định Zoom 4x màn hình xe, Cơ chế chống reset thời gian đỗ xe & Tab Lưu lộ trình di chuyển (v0.5.26)
+* **Các cải tiến và tính năng mới chi tiết**:
+  1. **Mặc định Zoom 4x (200m) trên màn hình chiếu TFT xe máy**:
+     - Trong `TFTStreamRenderer.swift`, thiết lập `currentZoomIndex = 0` (Zoom 4x, 200m, OSM Zoom 18) và `mapRadiusMeters = 200.0` ngay khi khởi tạo thay vì mức 2x (400m) trước đây. Màn hình chiếu bản đồ trên xe máy tự động phóng to rõ ràng, dễ nhìn nhất cho rider ngay khi xe nổ máy.
+  2. **Cơ chế chống reset thời gian đỗ xe khi bật chìa khóa rồi tắt mà không chạy**:
+     - *Vấn đề*: Khi người dùng mở chìa khóa xe để lấy đồ trong cốp xe hoặc nổ máy kiểm tra rồi tắt chìa khóa mà không đi đâu, hệ thống trước đây tự động tạo mới mốc đỗ xe `timestamp = Date()`, làm mất đi thời gian đỗ xe thực tế trước đó.
+     - *Giải pháp*: Trong `ParkingLocationManager.swift`, khi nhận được lệnh lưu vị trí đỗ xe, hệ thống tính khoảng cách giữa vị trí hiện tại với vị trí đỗ xe trước đó (`lastParkedLocation`). Nếu cự ly `< 50m` và không có cờ `forceNewTimestamp`, hệ thống **giữ nguyên mốc thời gian đỗ xe ban đầu** (`prev.timestamp`), không tính lại.
+  3. **Bổ sung Tab Lưu lộ trình di chuyển (`TripHistoryView` & `TripHistoryManager`)**:
+     - Bổ sung tab "Lộ trình" (icon `clock.arrow.circlepath`) trong thanh Tab Bar của `ContentView.swift`.
+     - Bộ quản lý `TripHistoryManager` tự động kích hoạt phiên ghi nhận khi xe kết nối CCU / mở khóa và kết thúc khi xe tắt khóa (Command 312 / disconnect) hoặc dừng dẫn đường.
+     - **Điều kiện nghiêm ngặt**: Chỉ lưu các chuyến đi có quãng đường thực tế **ít nhất từ 50 mét trở lên** (`distanceMeters >= 50.0m`). Các phiên dưới 50m sẽ tự động bị hủy bỏ và không làm thay đổi mốc thời gian đỗ xe.
+     - **Thông tin lưu trữ đầy đủ**:
+       - Điểm xuất phát (Toạ độ GPS + Địa chỉ dịch ngược Reverse Geocoding).
+       - Điểm kết thúc (Toạ độ GPS + Địa chỉ dịch ngược Reverse Geocoding).
+       - Quãng đường di chuyển (m / km).
+       - Thời gian di chuyển (giờ, phút, giây).
+       - Tốc độ trung bình (km/h) & Tốc độ tối đa (km/h).
+       - Thời gian đỗ xe tại điểm kết thúc (Mốc giờ đỗ xe & thời gian đã trôi qua kể từ khi đỗ).
+       - Chuỗi toạ độ polyline các điểm GPS đã đi qua.
+     - **Giao diện người dùng**: Thống kê tổng số chuyến, tổng quãng đường và tốc độ TB; danh sách từng chuyến đi với phối màu neon thể thao; thẻ chi tiết xem lại bản đồ lộ trình trực quan MapKit.
+
 ---
 
 ## 4. QUY TRÌNH BIÊN DỊCH VÀ PHÁT HÀNH (CI/CD)

@@ -1109,9 +1109,13 @@ extension YamahaCCUManager: CBPeripheralDelegate {
     public func sendMessageIndicatorToCluster(appName: String, sender: String, message: String) {}
     public func clearMessageIndicatorOnCluster() {}
     
-    // MARK: - Tự động ghi nhớ vị trí đỗ xe khi tắt máy (Find My Bike)
+    // MARK: - Tự động ghi nhớ vị trí đỗ xe khi tắt máy (Find My Bike) & Theo dõi lộ trình
     private func onBikeConnectedSuccessfully() {
         wasConnectedToBike = true
+        let bikeName = connectedBike?.name ?? (!mfiAccessoryName.isEmpty ? mfiAccessoryName : "Yamaha NMAX")
+        if let currentCoord = NavigationEngine.shared?.currentLocation?.coordinate {
+            TripHistoryManager.shared.startTripSession(at: currentCoord, bikeName: bikeName)
+        }
     }
     
     private func triggerParkingSaveIfAppropriate() {
@@ -1119,9 +1123,15 @@ extension YamahaCCUManager: CBPeripheralDelegate {
         wasConnectedToBike = false
         
         let bikeName = connectedBike?.name ?? (!mfiAccessoryName.isEmpty ? mfiAccessoryName : "Yamaha NMAX")
-        if let currentCoord = NavigationEngine.shared?.currentLocation?.coordinate {
-            ParkingLocationManager.shared.recordParkingLocation(coordinate: currentCoord, bikeName: bikeName)
-            log("🛵 [Find My Bike] Tắt máy xe / ngắt kết nối -> Tự động lưu vị trí đỗ xe tại: \(String(format: "%.5f, %.5f", currentCoord.latitude, currentCoord.longitude))")
+        let currentCoord = NavigationEngine.shared?.currentLocation?.coordinate
+        
+        // Kết thúc phiên theo dõi lộ trình:
+        // - Nếu quãng đường >= 50m: Tự động lưu vào Lịch sử lộ trình và cập nhật mốc thời gian đỗ xe mới.
+        // - Nếu quãng đường < 50m (mở khóa xe rồi tắt nhưng không chạy): Bỏ qua lộ trình và GIỮ NGUYÊN thời gian đỗ xe trước đó!
+        if TripHistoryManager.shared.isRecordingSession {
+            TripHistoryManager.shared.endTripSession(at: currentCoord)
+        } else if let coord = currentCoord {
+            ParkingLocationManager.shared.recordParkingLocation(coordinate: coord, bikeName: bikeName, forceNewTimestamp: false)
         }
     }
     

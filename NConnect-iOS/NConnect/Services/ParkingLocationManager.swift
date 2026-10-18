@@ -139,26 +139,48 @@ public final class ParkingLocationManager: ObservableObject {
         }
     }
     
-    // MARK: - Tự động ghi lại vị trí đỗ xe khi tắt khoá xe / ngắt kết nối
     public func recordParkingLocation(manualCoord: CLLocationCoordinate2D, bikeName: String = "Yamaha NMAX") {
-        recordParkingLocation(coordinate: manualCoord, bikeName: bikeName)
+        recordParkingLocation(coordinate: manualCoord, bikeName: bikeName, forceNewTimestamp: true)
     }
     
-    public func recordParkingLocation(coordinate: CLLocationCoordinate2D, bikeName: String = "Yamaha NMAX") {
+    public func recordParkingLocation(
+        coordinate: CLLocationCoordinate2D,
+        bikeName: String = "Yamaha NMAX",
+        timestamp: Date = Date(),
+        explicitAddress: String? = nil,
+        forceNewTimestamp: Bool = false
+    ) {
         // Tránh ghi đè nếu toạ độ không hợp lệ (0,0)
         guard coordinate.latitude != 0.0 && coordinate.longitude != 0.0 else { return }
         
-        let initialAddress = String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude)
-        var newLocation = ParkedBikeLocation(
+        var effectiveTimestamp = timestamp
+        
+        // Đôi khi người dùng mở chìa khóa xe xong rồi tắt nhưng không chạy (cự ly < 50m):
+        // Giữ nguyên thời gian đỗ xe ban đầu, không tính lại
+        if !forceNewTimestamp, let prev = lastParkedLocation {
+            let dist = prev.distanceMeters(from: coordinate) ?? 0.0
+            if dist < 50.0 {
+                effectiveTimestamp = prev.timestamp
+                YamahaCCUManager.shared?.log("🛵 [Find My Bike] Xe bật khóa rồi tắt nhưng không di chuyển (cự ly \(Int(dist))m < 50m) -> Giữ nguyên mốc thời gian đỗ xe trước đó (\(prev.formattedTimestamp))")
+            }
+        }
+        
+        let initialAddress = explicitAddress ?? String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude)
+        let newLocation = ParkedBikeLocation(
             coordinate: coordinate,
-            timestamp: Date(),
+            timestamp: effectiveTimestamp,
             address: initialAddress,
             bikeName: bikeName
         )
         
         DispatchQueue.main.async {
             self.lastParkedLocation = newLocation
-            YamahaCCUManager.shared?.log("🛵 [Find My Bike] Tự động ghi nhận vị trí đỗ xe: \(String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude))")
+            YamahaCCUManager.shared?.log("🛵 [Find My Bike] Ghi nhận vị trí đỗ xe: \(String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude)) (Thời gian: \(newLocation.relativeTimeString))")
+        }
+        
+        // Nếu đã có địa chỉ tường minh, không cần gọi Geocoder nữa
+        if explicitAddress != nil {
+            return
         }
         
         // Tiến hành dịch toạ độ ra tên đường / địa chỉ thực tế (Reverse Geocoding)

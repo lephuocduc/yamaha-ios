@@ -25,11 +25,17 @@ public struct ContentView: View {
                 }
                 .tag(1)
             
+            TripHistoryView()
+                .tabItem {
+                    Label("Lộ trình", systemImage: "clock.arrow.circlepath")
+                }
+                .tag(2)
+            
             SettingsView(ccuManager: ccuManager)
                 .tabItem {
                     Label("Cài đặt", systemImage: "gearshape.fill")
                 }
-                .tag(2)
+                .tag(3)
         }
         .accentColor(.cyan)
         .preferredColorScheme(.dark)

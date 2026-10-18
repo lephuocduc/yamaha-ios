@@ -211,8 +211,8 @@ public final class TFTStreamRenderer: ObservableObject {
     public static let zoomLevels: [CLLocationDistance] = [200.0, 400.0, 800.0, 1600.0, 3000.0]
     public static let osmZooms: [Int] = [18, 17, 16, 15, 14]
     
-    @Published public var currentZoomIndex: Int = 1 // Mặc định 400m (OSM Zoom 17)
-    @Published public var mapRadiusMeters: CLLocationDistance = 400.0
+    @Published public var currentZoomIndex: Int = 0 // Mặc định Zoom 4x (200m - OSM Zoom 18)
+    @Published public var mapRadiusMeters: CLLocationDistance = 200.0
     
     public var currentOsmZoom: Int {
         Self.osmZooms[min(max(0, currentZoomIndex), Self.osmZooms.count - 1)]
