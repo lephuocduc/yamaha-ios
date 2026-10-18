@@ -339,9 +339,21 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
             do {
                 // Đọc frame tiếp theo từ xe, timeout 5s để định kỳ kiểm tra kết nối MFi
                 let f = try readNaviFrame(timeout: 5.0)
-                log("[NaviLite] ← Xe gửi svc \(f.svc) (\(f.payload.count)B)")
+                // Lọc bỏ log định kỳ của các gói tin tần số cao (Heartbeat svc 80, Poll svc 65) để tránh tràn 500 dòng log chẩn đoán
+                if f.svc != 65 && f.svc != 80 {
+                    log("[NaviLite] ← Xe gửi svc \(f.svc) (\(f.payload.count)B)")
+                }
                 
                 switch f.svc {
+                case 80:
+                    // Heartbeat & Frame ACK định kỳ từ đồng hồ xe (chứa 16-bit sequence counter: 1C 00, 1D 00...)
+                    // Báo hiệu màn hình TFT vẫn đang nhận và vẽ các khung hình bản đồ trơn tru
+                    break
+                    
+                case 65:
+                    // Gói tin Idle Poll định kỳ từ xe (data: 00 00 00)
+                    break
+                    
                 case 66:
                     log("✓ Xe gửi svc 66! Gửi phản hồi xác thực svc 81 + svc 33")
                     writeEAData(NaviLite.frame(6, 81, 0, [1, 0]))
@@ -432,13 +444,19 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
                     
                 case 55:
                     let sub = f.payload.count > 0 ? f.payload[0] : 1
-                    log("Menu đồng hồ xe: Mở danh sách (55, sub \(sub))")
-                    DispatchQueue.main.async {
-                        if sub == 3 {
+                    if sub == 3 {
+                        log("Menu đồng hồ xe: Mở danh sách Yêu thích (55, sub 3)")
+                        DispatchQueue.main.async {
                             self.onOpenFavorites?()
-                        } else if sub == 4 {
+                        }
+                    } else if sub == 4 {
+                        log("Menu đồng hồ xe: Mở danh sách Trạm xăng (55, sub 4)")
+                        DispatchQueue.main.async {
                             self.onFindGasStation?()
-                        } else {
+                        }
+                    } else {
+                        log("Màn hình xe: Tiếp tục nhận hình ảnh bản đồ (55, sub \(sub))")
+                        DispatchQueue.main.async {
                             self.state = .streaming
                             self.streetCross.displaySpec.isReadyForStreaming = true
                         }
@@ -1097,6 +1115,9 @@ extension YamahaCCUManager: CBPeripheralDelegate {
             }
         } else if characteristic.uuid == Self.telemetryCharUUID {
             parseTelemetry(data)
+        } else if characteristic.uuid.uuidString.uppercased().hasPrefix("E974B9A1") {
+            // Luồng thông số ECU / Chẩn đoán tốc độ cao từ xe (16B, 109B, 61B liên tục 3 lần/giây)
+            // Lọc bỏ để không làm trôi 500 dòng log chẩn đoán quan trọng của người dùng
         } else {
             let hex = data.prefix(12).map { String(format: "%02X", $0) }.joined(separator: " ")
             log("📡 BLE Notify [\(characteristic.uuid.uuidString.prefix(8))]: \(hex) (\(data.count)B)")

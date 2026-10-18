@@ -438,6 +438,28 @@ Mọi gói tin dữ liệu điều khiển gửi lên màn hình xe đều phả
 
 ---
 
+### 🔴 TÍNH NĂNG 22: Giải mã Log chẩn đoán thực tế trên xe, Tối ưu bộ đệm Log & Chống tràn Log (v0.5.27)
+* **Phân tích dữ liệu vận hành thực tế trên xe từ Log**:
+  1. **Các thao tác điều khiển cốt lõi hoạt động hoàn hảo**:
+     - Phím cùm xe: `svc 51` (Zoom in) và `svc 52` (Zoom out) nhận lệnh nhạy bén, xe nhả phím tức thì khi nhận gói ACK Service 14.
+     - Phím cùm xe: `svc 49` (Dừng lộ trình) ngắt dẫn đường thành công, gửi Service 2 tắt khung dẫn đường trên TFT.
+     - Menu xe: `svc 54` (Đi làm) kích hoạt dẫn đường ngay tới địa điểm làm việc đã lưu.
+     - Menu xe: `svc 55 (sub 3)` (Yêu thích) kích hoạt dẫn đường thành công tới địa điểm yêu thích.
+     - Bắt tay ECU (Heartbeat keepalive): Xe gửi mã 309 (`0x0135`) định kỳ mỗi 10 giây và app phản hồi mã 310 (`0x0136`) ổn định 100%, kết nối xe duy trì liên tục không hề bị đứt đoạn.
+  2. **Giải mã các mã dịch vụ & gói tin tần số cao**:
+     - `svc 55 (sub 1)`: Đây là lệnh của cụm đồng hồ xe yêu cầu app **"Tiếp tục nhận hình ảnh bản đồ" (Resume map streaming)** sau khi rider thoát menu hoặc sau khi bắt đầu/hủy lộ trình (không phải mở danh sách).
+     - `svc 56`: Xe gửi khi rider vào menu cài đặt xe -> app phản hồi `svc 20` để tạm dừng nén/truyền JPEG nhằm tiết kiệm pin và băng thông.
+     - `svc 80`: Gói tin **Heartbeat & Frame ACK** định kỳ từ đồng hồ xe, mang theo 16-bit sequence counter tăng dần (`1C 00` -> `58 00`) xác nhận đồng hồ đang nhận và vẽ các khung hình bản đồ trơn tru.
+     - `svc 65`: Gói tin **Idle Poll** định kỳ (`data: 00 00 00`) từ xe.
+  3. **Xử lý triệt để hiện tượng Log Flooding (Tràn bộ đệm log chẩn đoán)**:
+     - *Vấn đề*: Đặc tính BLE `E974B9A1` gửi telemetry 3 gói/giây kèm `svc 65` và `svc 80` tạo ra hơn 420 dòng log thô mỗi phút. Bộ đệm log chẩn đoán của app (`diagnosticLogs` giới hạn 500 dòng) bị tràn chỉ sau hơn 1 phút, làm trôi mất toàn bộ các sự kiện quan trọng (bấm nút cùm xe, bắt đầu dẫn đường, trạng thái ECU...).
+     - *Giải pháp*:
+       - Lọc bỏ việc in log định kỳ của `svc 65` và `svc 80` trong luồng nhận NaviLite.
+       - Lọc bỏ việc in log hex thô của đặc tính BLE `E974B9A1`.
+       - Chuẩn hóa nội dung log của `svc 55 (sub 1)` thành: `Màn hình xe: Tiếp tục nhận hình ảnh bản đồ (55, sub 1)`.
+
+---
+
 ## 4. QUY TRÌNH BIÊN DỊCH VÀ PHÁT HÀNH (CI/CD)
 - Dự án sử dụng GitHub Actions workflow (`.github/workflows/build-ios.yml`).
 - Mỗi khi có commit mới được push lên nhánh `main`, hệ thống tự động:
