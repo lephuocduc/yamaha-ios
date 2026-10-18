@@ -678,12 +678,8 @@ public final class TFTStreamRenderer: ObservableObject {
         ctx.restoreGState()
     }
     
-    // MARK: - Banner thông tin dẫn đường Turn-by-Turn phía trên màn hình TFT (Bao trọn dải đen trên cùng, Chữ bự, Tương phản cao, ETA góc trên phải)
+    // MARK: - Banner thông tin dẫn đường Turn-by-Turn phía trên màn hình TFT (Fit khít chữ, Không dùng mũi tên, Text dạng 36m turn right onto...)
     private func drawTopNavigationBanner(in ctx: CGContext, size: CGSize, instruction: NavigationInstruction, isRerouting: Bool = false) {
-        // Chiều cao bao trọn thanh header đen trên cùng của màn hình TFT xe máy (từ y: 0, cao 62px)
-        let bannerHeight: CGFloat = 62.0
-        let bannerRect = CGRect(x: 0, y: 0, width: size.width, height: bannerHeight)
-        
         guard instruction.isNavigating || isRerouting || instruction.hasArrived else { return }
         
         // 1. Khi đang tự động vẽ lại lộ trình

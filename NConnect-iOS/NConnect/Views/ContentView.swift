@@ -132,6 +132,7 @@ public struct ContentView: View {
                         ccu.log("⭐ Menu xe: Chỉ có 1 mục Yêu thích -> Tự động dẫn đường tới: \(first.name)")
                         nav.calculateRoute(to: first.coordinate, destinationTitle: first.name)
                     }
+                } else {
                     ccu.log("⚠️ Menu xe: Chưa lưu địa điểm Yêu thích nào")
                     ccu.sendPoiListToTFT(listId: 3, items: [], currentLoc: center)
                     AppNotificationManager.shared.postNotification(
