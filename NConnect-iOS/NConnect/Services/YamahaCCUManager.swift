@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import CoreBluetooth
+import CoreLocation
 import ExternalAccessory
 import Combine
 
@@ -739,8 +740,8 @@ public final class YamahaCCUManager: NSObject, ObservableObject {
         }
         
         let maxItems = min(items.count, 20)
-        let headerService = (listId == 3) ? 7 : 8
-        let itemService = (listId == 3) ? 98 : 99
+        let headerService: UInt8 = (listId == 3) ? 7 : 8
+        let itemService: UInt8 = (listId == 3) ? 98 : 99
         
         if listId == 3 {
             self.lastSentFavorites = Array(items.prefix(maxItems))
